@@ -173,17 +173,11 @@ impl Lexer {
             while self.has_more(offset) && is_hex(self.peek_pos(offset)) {
                 offset += 1;
             }
+            let value = self.source.as_str()[self.position..self.position + offset].to_string();
             if offset == 2 {
-                return Token::ErrorToken(
-                    self.build_span(2),
-                    self.source.as_str()[self.position..self.position + offset].to_string(),
-                );
+                return Token::ErrorToken(self.build_span(2), value);
             }
-            return Token::NumberLiteral(
-                self.build_span(offset),
-                self.source.as_str()[self.position..self.position + offset].to_string(),
-                16,
-            );
+            return Token::NumberLiteral(self.build_span(offset), value, 16);
         }
 
         let mut offset = 1;

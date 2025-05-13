@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, i32};
 
 use crate::{
     lexer::token::{OperatorType, Token},
@@ -35,8 +35,21 @@ enum VariableStatus {
 pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String> {
     match *tree {
         Tree::Literal(value, base, _) => {
-            if i32::from_str_radix(value.as_str(), base as u32).is_err() {
-                return Err("Invalid integer literal!".to_string());
+            if base == 16 {
+                if u32::from_str_radix(&value.as_str()[2..], 16).is_err() {
+                    return Err("Invalid integer literal! Too many bytes!".to_string());
+                }
+                let bytes = u32::from_str_radix(&value.as_str()[2..], 16)
+                    .unwrap()
+                    .to_be_bytes();
+                let parsed_value = i32::from_be_bytes(bytes);
+                dbg!(parsed_value);
+            } else if base == 10 {
+                if i32::from_str_radix(value.as_str(), base as u32).is_err() {
+                    return Err("Invalid integer literal!".to_string());
+                }
+            } else {
+                return Err("Invalid base!".to_string());
             }
             Ok(())
         }

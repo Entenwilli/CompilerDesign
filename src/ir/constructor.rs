@@ -150,9 +150,17 @@ impl IRGraphConstructor {
                 }
             }
             Tree::Literal(constant, base, _) => {
-                let node = self.create_constant_int(
-                    i32::from_str_radix(constant.as_str(), base as u32).unwrap(),
-                );
+                let value: i32 = if base == 16 {
+                    let bytes = u32::from_str_radix(&constant.as_str()[2..], 16)
+                        .unwrap()
+                        .to_be_bytes();
+                    i32::from_be_bytes(bytes)
+                } else if base == 10 {
+                    i64::from_str_radix(constant.as_str(), base as u32).unwrap() as i32
+                } else {
+                    return None;
+                };
+                let node = self.create_constant_int(value);
                 Some(node)
             }
             Tree::LValueIdentifier(_) => None,
