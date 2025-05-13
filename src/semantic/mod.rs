@@ -103,7 +103,18 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
         Tree::IdentifierExpression(identifier) => {
             analyze(identifier.clone(), state)?;
             if let Tree::Name(name, _) = *identifier {
-                state.namespace.get(&name).ok_or("Undeclared variable!")?;
+                state
+                    .namespace
+                    .get(&name)
+                    .ok_or("Undeclared variable used in expression!")?;
+                if state
+                    .namespace
+                    .get(&name)
+                    .unwrap()
+                    .eq(&VariableStatus::Declared)
+                {
+                    return Err("Uninitialized variable used in expression!".to_string());
+                }
             };
             Ok(())
         }
