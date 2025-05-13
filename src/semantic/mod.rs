@@ -75,9 +75,20 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 if let Tree::Name(name, _) = *identifier {
                     if let Token::Operator(_, operator_type) = operator {
                         if let OperatorType::Assign = operator_type {
-                            state.namespace.get(&name).ok_or("Undeclared variable!")?;
+                            state
+                                .namespace
+                                .get(&name)
+                                .ok_or(format!("Undeclared variable {}!", name.as_string()))?;
+                            if state
+                                .namespace
+                                .get(&name)
+                                .unwrap()
+                                .ne(&VariableStatus::Initialized)
+                            {
+                                state.namespace.insert(name, VariableStatus::Initialized);
+                            }
                         } else if !state.namespace.contains_key(&name) {
-                            return Err("Undecleared variable used!".to_string());
+                            return Err(format!("Undecleared variable {} used!", name.as_string()));
                         } else if state
                             .namespace
                             .get(&name)
@@ -116,17 +127,20 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
         Tree::IdentifierExpression(identifier) => {
             analyze(identifier.clone(), state)?;
             if let Tree::Name(name, _) = *identifier {
-                state
-                    .namespace
-                    .get(&name)
-                    .ok_or("Undeclared variable used in expression!")?;
+                state.namespace.get(&name).ok_or(format!(
+                    "Undeclared variable {} used in expression!",
+                    name.as_string()
+                ))?;
                 if state
                     .namespace
                     .get(&name)
                     .unwrap()
                     .eq(&VariableStatus::Declared)
                 {
-                    return Err("Uninitialized variable used in expression!".to_string());
+                    return Err(format!(
+                        "Uninitialized variable {} used in expression!",
+                        name.as_string()
+                    ));
                 }
             };
             Ok(())
