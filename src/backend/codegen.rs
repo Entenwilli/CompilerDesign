@@ -94,7 +94,7 @@ impl CodeGenerator {
                 ));
             }
             Node::Multiplication(data) => {
-                code.push_str(&self.generate_binary_operation(
+                code.push_str(&self.generate_binary_operation_rax(
                     node_index,
                     data.binary_operation_data(),
                     ir_graph,
@@ -103,7 +103,7 @@ impl CodeGenerator {
                 ));
             }
             Node::Division(data) => {
-                code.push_str(&self.generate_binary_operation_div(
+                code.push_str(&self.generate_binary_operation_rax(
                     node_index,
                     data.binary_operation_data(),
                     ir_graph,
@@ -188,7 +188,7 @@ impl CodeGenerator {
         code
     }
 
-    pub fn generate_binary_operation_div(
+    pub fn generate_binary_operation_rax(
         &self,
         node_index: usize,
         _operation_data: &BinaryOperationData,

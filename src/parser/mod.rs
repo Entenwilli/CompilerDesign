@@ -123,7 +123,6 @@ fn parse_simple(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 
 fn parse_assignment_operator(tokens: &mut VecDeque<Token>) -> Result<Token, ParseError> {
     if tokens.front().unwrap().is_assignment_operator() {
-        consume(tokens);
         return tokens.pop_front().ok_or(ParseError::Finished);
     }
     Err(ParseError::Error(
@@ -267,6 +266,6 @@ fn expect_identifier(tokens: &mut VecDeque<Token>) -> Option<Token> {
     None
 }
 
-fn consume(tokens: &mut VecDeque<Token>) -> Option<Token> {
+fn _consume(tokens: &mut VecDeque<Token>) -> Option<Token> {
     tokens.pop_front()
 }

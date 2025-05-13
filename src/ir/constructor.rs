@@ -63,26 +63,31 @@ impl IRGraphConstructor {
                         if let Token::Operator(_, operator_type) = operator {
                             match operator_type {
                                 OperatorType::AssignMinus => {
-                                    let lhs = self.read_variable(name, self.current_block);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
                                     self.create_sub(lhs, rhs);
+                                    self.write_variable(name, self.current_block, rhs);
                                 }
                                 OperatorType::AssignPlus => {
-                                    let lhs = self.read_variable(name, self.current_block);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
                                     self.create_add(lhs, rhs);
+                                    self.write_variable(name, self.current_block, rhs);
                                 }
                                 OperatorType::AssignMul => {
-                                    let lhs = self.read_variable(name, self.current_block);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
                                     self.create_mul(lhs, rhs);
+                                    self.write_variable(name, self.current_block, rhs);
                                 }
                                 OperatorType::AssignDiv => {
-                                    let lhs = self.read_variable(name, self.current_block);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
                                     let div = self.create_div(lhs, rhs);
-                                    self.create_div_mod_projection(div);
+                                    let desugar = self.create_div_mod_projection(div);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::AssignMod => {
-                                    let lhs = self.read_variable(name, self.current_block);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
                                     let mod_node = self.create_mod(lhs, rhs);
-                                    self.create_div_mod_projection(mod_node);
+                                    let desugar = self.create_div_mod_projection(mod_node);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::Assign => {
                                     self.write_variable(name, self.current_block, rhs);
