@@ -95,7 +95,14 @@ impl Lexer {
                                 state = CommentState::MultiLine;
                                 comment_depth += 1;
                             }
-                            _ => return None,
+                            _ => {
+                                if state.eq(&CommentState::MultiLine) {
+                                    self.position += 1;
+                                    continue;
+                                } else {
+                                    return None;
+                                }
+                            }
                         }
                         comment_start = self.position;
                         self.position += 2;
