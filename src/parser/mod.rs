@@ -30,6 +30,19 @@ fn parse_function(mut tokens: VecDeque<Token>) -> Result<Tree, ParseError> {
     let return_type = expect_keyword(&mut tokens, KeywordType::Int)
         .ok_or(ParseError::Error("Expected int".to_string()))?;
     let identifier = expect_identifier(&mut tokens).unwrap();
+    if let Token::Identifier(_, name) = identifier.clone() {
+        if name != "main" {
+            return Err(ParseError::Error(format!(
+                "Expected main function, but got {}",
+                &name
+            )));
+        }
+    } else {
+        return Err(ParseError::Error(format!(
+            "Expected identifier, but got {:?}",
+            &identifier
+        )));
+    }
     expect_seperator(&mut tokens, SeperatorType::ParenOpen)
         .ok_or(ParseError::Error("Expected ParenOpen".to_string()))?;
     expect_seperator(&mut tokens, SeperatorType::ParenClose)
@@ -192,9 +205,10 @@ fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
             Ok(Box::new(Tree::IdentifierExpression(name(identifier)?)))
         }
         Token::NumberLiteral(span, value, base) => Ok(Box::new(Tree::Literal(value, base, span))),
-        _ => Err(ParseError::Error(
-            "Expected ParenOpen, Minus, Identifier or Number Literal".to_string(),
-        )),
+        token => Err(ParseError::Error(format!(
+            "Expected ParenOpen, Minus, Identifier or Number Literal, but got {:?}",
+            token
+        ))),
     }
 }
 
