@@ -86,7 +86,7 @@ impl Display for Tree {
                 write!(f, "{}", name.as_string())
             }
             Tree::Assignment(lvalue, operator, expression) => {
-                write!(f, "{} {} {}", lvalue, operator.as_string(), expression)
+                writeln!(f, "{} {} {}", lvalue, operator.as_string(), expression)
             }
             Tree::LValueIdentifier(identifier) => write!(f, "{}", identifier),
             Tree::BinaryOperation(lhs, rhs, operator) => {

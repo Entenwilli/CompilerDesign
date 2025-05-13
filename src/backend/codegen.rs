@@ -100,6 +100,7 @@ impl CodeGenerator {
                     ir_graph,
                     registers,
                     "mul",
+                    "mul",
                 ));
             }
             Node::Division(data) => {
@@ -109,14 +110,16 @@ impl CodeGenerator {
                     ir_graph,
                     registers,
                     "div",
+                    "div",
                 ));
             }
             Node::Modulo(data) => {
-                code.push_str(&self.generate_binary_operation(
+                code.push_str(&self.generate_binary_operation_rax(
                     node_index,
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
+                    "div",
                     "mod",
                 ));
             }
@@ -195,6 +198,7 @@ impl CodeGenerator {
         ir_graph: &IRGraph,
         registers: &Registers,
         op_code: &str,
+        mode: &str,
     ) -> String {
         let left_value = registers
             .get(ir_graph.get_node(predecessor_skip_projection(
@@ -224,7 +228,11 @@ impl CodeGenerator {
         code.push('\n');
 
         code.push_str("movq ");
-        code.push_str(&HardwareRegister::Rax.as_assembly());
+        if mode == "mod" {
+            code.push_str(&HardwareRegister::Rdx.as_assembly());
+        } else {
+            code.push_str(&HardwareRegister::Rax.as_assembly());
+        }
         code.push_str(", ");
         code.push_str(&destination_register.as_assembly());
         code.push('\n');
