@@ -100,7 +100,7 @@ impl Display for Tree {
             }
             Tree::Declaration(type_tree, name, initializer) => {
                 if initializer.is_some() {
-                    write!(
+                    writeln!(
                         f,
                         "{}: {} <- {}",
                         name,
@@ -108,7 +108,7 @@ impl Display for Tree {
                         initializer.clone().unwrap()
                     )
                 } else {
-                    write!(f, "{}: {}", name, type_tree)
+                    writeln!(f, "{}: {}", name, type_tree)
                 }
             }
             Tree::IdentifierExpression(identifier) => {

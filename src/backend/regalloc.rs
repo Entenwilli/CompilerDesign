@@ -9,7 +9,7 @@ pub trait Register {
     fn as_assembly(&self) -> String;
 }
 
-enum HardwareRegister {
+pub enum HardwareRegister {
     Rax,
     Rbx,
     Rcx,
@@ -75,7 +75,7 @@ impl Register for StackRegister {
 
 impl Display for StackRegister {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "%rip[{}]", self.offset)
+        write!(f, "[rip, #{}]", self.offset)
     }
 }
 
@@ -91,8 +91,7 @@ impl<'a> RegisterAllocator<'a> {
             current_stack_offset: 0,
             registers: HashMap::new(),
             available_hardware_register: vec![
-                HardwareRegister::Rax,
-                HardwareRegister::Rax,
+                //HardwareRegister::Rax,
                 HardwareRegister::Rbx,
                 HardwareRegister::Rcx,
                 HardwareRegister::Rdx,
@@ -137,7 +136,7 @@ impl<'a> RegisterAllocator<'a> {
             Box::new(register)
         } else {
             let register = StackRegister::new(self.current_stack_offset);
-            self.current_stack_offset += 1;
+            self.current_stack_offset += 8;
             Box::new(register)
         }
     }

@@ -5,7 +5,7 @@ use crate::ir::{
     node::{BinaryOperationData, ConstantIntData, Node, RETURN_RESULT_INDEX},
 };
 
-use super::regalloc::{Register, RegisterAllocator};
+use super::regalloc::{HardwareRegister, Register, RegisterAllocator};
 
 type Registers<'a> = HashMap<&'a Node, Box<dyn Register>>;
 
@@ -65,6 +65,7 @@ impl CodeGenerator {
         match node {
             Node::Add(data) => {
                 code.push_str(&self.generate_binary_operation(
+                    node_index,
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
@@ -73,6 +74,7 @@ impl CodeGenerator {
             }
             Node::Subtraction(data) => {
                 code.push_str(&self.generate_binary_operation(
+                    node_index,
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
@@ -81,6 +83,7 @@ impl CodeGenerator {
             }
             Node::Multiplication(data) => {
                 code.push_str(&self.generate_binary_operation(
+                    node_index,
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
@@ -88,7 +91,8 @@ impl CodeGenerator {
                 ));
             }
             Node::Division(data) => {
-                code.push_str(&self.generate_binary_operation(
+                code.push_str(&self.generate_binary_operation_div(
+                    node_index,
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
@@ -97,6 +101,7 @@ impl CodeGenerator {
             }
             Node::Modulo(data) => {
                 code.push_str(&self.generate_binary_operation(
+                    node_index,
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
@@ -117,14 +122,68 @@ impl CodeGenerator {
 
     pub fn generate_binary_operation(
         &self,
-        _operation_data: &BinaryOperationData,
-        _ir_graph: &IRGraph,
-        _registers: &Registers,
+        node_index: usize,
+        operation_data: &BinaryOperationData,
+        ir_graph: &IRGraph,
+        registers: &Registers,
         op_code: &str,
     ) -> String {
+        let left_value = registers
+            .get(ir_graph.get_node(operation_data.left()))
+            .unwrap();
+        let right_value = registers
+            .get(ir_graph.get_node(operation_data.right()))
+            .unwrap();
+        let destination_register = registers.get(ir_graph.get_node(node_index)).unwrap();
         let mut code = String::new();
+        code.push_str("movq ");
+        code.push_str(&left_value.as_assembly());
+        code.push_str(", ");
+        code.push_str(&destination_register.as_assembly());
+        code.push('\n');
+
         code.push_str(op_code);
-        todo!("Actually generate code");
+        code.push(' ');
+        code.push_str(&destination_register.as_assembly());
+        code.push_str(", ");
+        code.push_str(&right_value.as_assembly());
+        code.push('\n');
+        code
+    }
+
+    pub fn generate_binary_operation_div(
+        &self,
+        node_index: usize,
+        operation_data: &BinaryOperationData,
+        ir_graph: &IRGraph,
+        registers: &Registers,
+        op_code: &str,
+    ) -> String {
+        let left_value = registers
+            .get(ir_graph.get_node(operation_data.left()))
+            .unwrap();
+        let right_value = registers
+            .get(ir_graph.get_node(operation_data.right()))
+            .unwrap();
+        let destination_register = registers.get(ir_graph.get_node(node_index)).unwrap();
+        let mut code = String::new();
+        code.push_str("movq ");
+        code.push_str(&left_value.as_assembly());
+        code.push_str(", ");
+        code.push_str(&HardwareRegister::Rax.as_assembly());
+        code.push('\n');
+
+        code.push_str(op_code);
+        code.push(' ');
+        code.push_str(&right_value.as_assembly());
+        code.push('\n');
+
+        code.push_str("movq ");
+        code.push_str(&HardwareRegister::Rax.as_assembly());
+        code.push_str(", ");
+        code.push_str(&destination_register.as_assembly());
+        code.push('\n');
+        code
     }
 
     pub fn generate_return(
@@ -144,8 +203,11 @@ impl CodeGenerator {
                 .unwrap()
                 .as_assembly(),
         );
-        code.push_str(", %rax\n");
-        code.push_str("ret\n");
+        code.push_str(", %rax");
+        code.push('\n');
+
+        code.push_str("ret");
+        code.push('\n');
         code
     }
 

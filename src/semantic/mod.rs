@@ -71,13 +71,11 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 VariableStatus::Declared
             };
             if let Tree::Name(identifier, _) = *name {
-                if state
-                    .namespace
-                    .get(&identifier)
-                    .unwrap()
-                    .ge(&variable_state)
-                {
-                    panic!("Reinitializing or redeclaring variables are not allowed!");
+                let variable_status = state.namespace.get(&identifier);
+                if variable_status.is_some() && variable_status.unwrap().ge(&variable_state) {
+                    return Err(
+                        "Reinitializing or redeclaring variables are not allowed!".to_string()
+                    );
                 }
                 state.namespace.insert(identifier.clone(), variable_state);
             }

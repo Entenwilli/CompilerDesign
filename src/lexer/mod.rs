@@ -1,6 +1,9 @@
 use token::{KeywordType, OperatorType, SeperatorType, Token};
 
-use crate::util::{position::Position, span::Span};
+use crate::{
+    parser::error::ParseError,
+    util::{position::Position, span::Span},
+};
 
 pub mod token;
 
@@ -21,13 +24,15 @@ impl Lexer {
         }
     }
 
-    pub fn next_token(&mut self) -> Option<Token> {
+    pub fn next_token(&mut self) -> Result<Token, ParseError> {
         let whitespace = self.skip_whitespace();
         if whitespace.is_some() {
-            return whitespace;
+            return whitespace
+                .clone()
+                .ok_or(ParseError::Error(format!("{:?}", whitespace.unwrap())));
         }
         if self.position >= self.source.len() {
-            return None;
+            return Err(ParseError::Finished);
         }
 
         let token = match self.peek() {
@@ -47,14 +52,16 @@ impl Lexer {
                     if self.is_numeric(char) {
                         self.lex_number()
                     } else {
-                        self.lex_identifier_keyword()
+                        self.lex_identifier_keyword().map_err(|_| {
+                            ParseError::Error("Error lexing identifier keyword".to_string())
+                        })?
                     }
                 } else {
                     Token::ErrorToken(self.build_span(1), char.to_string())
                 }
             }
         };
-        Some(token)
+        Ok(token)
     }
 
     fn skip_whitespace(&mut self) -> Option<Token> {
@@ -192,18 +199,24 @@ impl Lexer {
         self.peek().eq(&'0') && self.has_more(1) && self.peek_pos(1).to_ascii_lowercase().eq(&'x')
     }
 
-    fn lex_identifier_keyword(&mut self) -> Token {
+    fn lex_identifier_keyword(&mut self) -> Result<Token, ()> {
         let mut offset = 1;
         while self.has_more(offset) && self.is_identifier_char(self.peek_pos(offset)) {
             offset += 1;
         }
 
-        let identifier = &self.source[self.position..self.position + offset];
+        let identifier = &self
+            .source
+            .get(self.position..self.position + offset)
+            .ok_or(())?;
         if let Some(keyword) = KeywordType::from_string(identifier) {
-            return Token::Keyword(self.build_span(offset), keyword);
+            return Ok(Token::Keyword(self.build_span(offset), keyword));
         }
         let identifier_string = identifier.to_string();
-        Token::Identifier(self.build_span(offset), identifier_string)
+        Ok(Token::Identifier(
+            self.build_span(offset),
+            identifier_string,
+        ))
     }
 
     fn seperator(&mut self, seperator: SeperatorType) -> Token {

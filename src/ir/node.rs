@@ -143,6 +143,14 @@ impl BinaryOperationData {
             node_data: NodeData::new(block, vec![left, right, side_effect]),
         }
     }
+
+    pub fn left(&self) -> usize {
+        self.node_data.predecessors[0]
+    }
+
+    pub fn right(&self) -> usize {
+        self.node_data.predecessors[1]
+    }
 }
 
 #[derive(Eq, Hash, PartialEq)]
