@@ -1,4 +1,4 @@
-use std::{fmt::Display, usize};
+use std::fmt::Display;
 
 #[derive(Eq, Hash, PartialEq)]
 pub enum Node {
@@ -353,7 +353,7 @@ impl Display for Node {
                 "Add: {:?}",
                 data.binary_operation_data.node_data.predecessors()
             ),
-            Node::Phi(data) => write!(f, "!!PHI!!"),
+            Node::Phi(_) => write!(f, "!!PHI!!"),
             Node::Block(data) => write!(f, "Block: {:?}", data.node_data.predecessors()),
             Node::Start(data) => write!(f, "Start: {:?}", data.node_data.predecessors()),
             Node::ConstantInt(data) => write!(f, "Constant: {}", data.value),

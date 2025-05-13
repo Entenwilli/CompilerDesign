@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ir::{
     graph::{IRGraph, END_BLOCK},
-    node::{BinaryOperationData, ConstantIntData, Node, ReturnData, RETURN_RESULT_INDEX},
+    node::{BinaryOperationData, ConstantIntData, Node, RETURN_RESULT_INDEX},
 };
 
 use super::regalloc::{Register, RegisterAllocator};
@@ -31,12 +31,12 @@ impl CodeGenerator {
         CodeGenerator { ir_graphs }
     }
 
-    pub fn generate(mut self) -> String {
+    pub fn generate(self) -> String {
         let mut code = String::new();
         code.push_str(TEMPLATE);
-        for (index, ir_graph) in self.ir_graphs.iter().enumerate() {
+        for ir_graph in self.ir_graphs.iter() {
             let register_allocator = RegisterAllocator::new();
-            let registers = register_allocator.allocate_registers(&ir_graph);
+            let registers = register_allocator.allocate_registers(ir_graph);
             code.push_str(&self.generate_for_graph(ir_graph, registers));
         }
         code
@@ -103,8 +103,8 @@ impl CodeGenerator {
                     "mod",
                 ));
             }
-            Node::Return(data) => {
-                code.push_str(&self.generate_return(data, ir_graph, registers, node_index));
+            Node::Return(_) => {
+                code.push_str(&self.generate_return(ir_graph, registers, node_index));
             }
             Node::ConstantInt(data) => {
                 code.push_str(&self.generate_constant_int(data, ir_graph, registers, node_index));
@@ -117,20 +117,18 @@ impl CodeGenerator {
 
     pub fn generate_binary_operation(
         &self,
-        operation_data: &BinaryOperationData,
-        ir_graph: &IRGraph,
-        registers: &Registers,
+        _operation_data: &BinaryOperationData,
+        _ir_graph: &IRGraph,
+        _registers: &Registers,
         op_code: &str,
     ) -> String {
         let mut code = String::new();
         code.push_str(op_code);
         todo!("Actually generate code");
-        code
     }
 
     pub fn generate_return(
         &self,
-        return_data: &ReturnData,
         ir_graph: &IRGraph,
         registers: &Registers,
         node_index: usize,

@@ -72,11 +72,11 @@ impl Default for IRGraph {
 
 impl Display for IRGraph {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "START: {}\n", self.get_node(START_BLOCK))?;
+        writeln!(f, "START: {}", self.get_node(START_BLOCK))?;
         for i in END_BLOCK + 1..self.next_node_index {
-            write!(f, "{}: {}\n", i, self.get_node(i))?
+            writeln!(f, "{}: {}", i, self.get_node(i))?
         }
-        write!(f, "END: {}\n", self.get_node(END_BLOCK))?;
+        writeln!(f, "END: {}", self.get_node(END_BLOCK))?;
         Ok(())
     }
 }
