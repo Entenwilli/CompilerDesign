@@ -21,15 +21,21 @@ impl Parser {
         Parser { tokens }
     }
 
-    pub fn parse_program(self) -> Result<Tree, ParseError> {
-        Ok(Tree::Program(vec![parse_function(self.tokens)?]))
+    pub fn parse_program(mut self) -> Result<Tree, ParseError> {
+        let functions = vec![parse_function(&mut self.tokens)?];
+        if !self.tokens.is_empty() {
+            return Err(ParseError::Error(
+                "Tokens leftover after parsing!".to_string(),
+            ));
+        }
+        Ok(Tree::Program(functions))
     }
 }
 
-fn parse_function(mut tokens: VecDeque<Token>) -> Result<Tree, ParseError> {
-    let return_type = expect_keyword(&mut tokens, KeywordType::Int)
+fn parse_function(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let return_type = expect_keyword(tokens, KeywordType::Int)
         .ok_or(ParseError::Error("Expected int".to_string()))?;
-    let identifier = expect_identifier(&mut tokens).unwrap();
+    let identifier = expect_identifier(tokens).unwrap();
     if let Token::Identifier(_, name) = identifier.clone() {
         if name != "main" {
             return Err(ParseError::Error(format!(
@@ -43,11 +49,11 @@ fn parse_function(mut tokens: VecDeque<Token>) -> Result<Tree, ParseError> {
             &identifier
         )));
     }
-    expect_seperator(&mut tokens, SeperatorType::ParenOpen)
+    expect_seperator(tokens, SeperatorType::ParenOpen)
         .ok_or(ParseError::Error("Expected ParenOpen".to_string()))?;
-    expect_seperator(&mut tokens, SeperatorType::ParenClose)
+    expect_seperator(tokens, SeperatorType::ParenClose)
         .ok_or(ParseError::Error("Expected ParenClose".to_string()))?;
-    let body = parse_block(&mut tokens)?;
+    let body = parse_block(tokens)?;
     Ok(Tree::Function(
         Box::new(Tree::Type(Type::Int, return_type.span())),
         name(identifier)?,
