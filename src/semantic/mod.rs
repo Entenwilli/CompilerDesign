@@ -1,6 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 
-use crate::parser::{ast::Tree, symbols::Name};
+use crate::{
+    lexer::token::{OperatorType, Token},
+    parser::{ast::Tree, symbols::Name},
+};
 
 pub struct AnalysisState {
     return_state: ReturnState,
@@ -52,12 +55,25 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             state.return_state = ReturnState::NotReturing;
             Ok(())
         }
-        Tree::Assignment(lvalue, _, expression) => {
+        Tree::Assignment(lvalue, operator, expression) => {
             analyze(lvalue.clone(), state)?;
             analyze(expression.clone(), state)?;
             if let Tree::LValueIdentifier(identifier) = *lvalue {
                 if let Tree::Name(name, _) = *identifier {
-                    state.namespace.get(&name).ok_or("Undeclared variable!")?;
+                    if let Token::Operator(_, operator_type) = operator {
+                        if let OperatorType::Assign = operator_type {
+                            state.namespace.get(&name).ok_or("Undeclared variable!")?;
+                        } else if !state.namespace.contains_key(&name) {
+                            return Err("Undecleared variable used!".to_string());
+                        } else if state
+                            .namespace
+                            .get(&name)
+                            .unwrap()
+                            .eq(&VariableStatus::Declared)
+                        {
+                            return Err("Decleared variable without value used!".to_string());
+                        }
+                    }
                 }
             };
             Ok(())

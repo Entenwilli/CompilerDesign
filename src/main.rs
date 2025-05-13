@@ -67,7 +67,6 @@ fn main() {
         .output()
         .expect("Failed to invoke GCC!");
     println!("{}", std::str::from_utf8(gcc.stderr.as_slice()).unwrap());
-    //sleep(Duration::from_secs(1));
 }
 
 fn lex_parse(path: &Path) -> Tree {
