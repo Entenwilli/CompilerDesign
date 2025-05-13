@@ -23,25 +23,27 @@ impl Parser {
         Parser { tokens }
     }
 
-    pub fn parse_program(self) -> Tree {
-        Tree::Program(vec![parse_function(self.tokens)])
+    pub fn parse_program(self) -> Result<Tree, ()> {
+        Ok(Tree::Program(vec![parse_function(self.tokens)?]))
     }
 }
 
-fn parse_function(mut tokens: VecDeque<Token>) -> Tree {
+#[must_use]
+fn parse_function(mut tokens: VecDeque<Token>) -> Result<Tree, ()> {
     let return_type = expect_keyword(&mut tokens, KeywordType::Int).expect("Missing int keyword!");
     let identifier = expect_identifier(&mut tokens).unwrap();
     expect_seperator(&mut tokens, SeperatorType::ParenOpen);
     expect_seperator(&mut tokens, SeperatorType::ParenClose);
     let body = parse_block(&mut tokens);
-    Tree::Function(
+    Ok(Tree::Function(
         Box::new(Tree::Type(Type::Int, return_type.span())),
-        name(identifier),
-        body,
-    )
+        name(identifier)?,
+        body?,
+    ))
 }
 
-fn parse_block(tokens: &mut VecDeque<Token>) -> Box<Tree> {
+#[must_use]
+fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
     let body_open = expect_seperator(tokens, SeperatorType::BraceOpen).unwrap();
     let mut statements = vec![];
     while !tokens.is_empty() {
@@ -49,66 +51,72 @@ fn parse_block(tokens: &mut VecDeque<Token>) -> Box<Tree> {
             Token::Separator(_, seperator) if seperator.eq(&SeperatorType::BraceClose) => {
                 break;
             }
-            _ => statements.push(parse_statement(tokens)),
+            _ => statements.push(parse_statement(tokens)?),
         }
     }
     let body_close =
         expect_seperator(tokens, SeperatorType::BraceClose).expect("Expected closing brace!");
-    Box::new(Tree::Block(
+    Ok(Box::new(Tree::Block(
         statements,
         body_open.span().merge(body_close.span()),
-    ))
+    )))
 }
 
-fn parse_statement(tokens: &mut VecDeque<Token>) -> Tree {
+#[must_use]
+fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
     let statement = if tokens.front().unwrap().is_keyword(&KeywordType::Int) {
-        parse_decleration(tokens)
+        parse_decleration(tokens)?
     } else if tokens.front().unwrap().is_keyword(&KeywordType::Return) {
-        parse_return(tokens)
+        parse_return(tokens)?
     } else {
-        parse_simple(tokens)
+        parse_simple(tokens)?
     };
     expect_seperator(tokens, SeperatorType::Semicolon);
-    statement
+    Ok(statement)
 }
 
-fn parse_decleration(tokens: &mut VecDeque<Token>) -> Tree {
+#[must_use]
+fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
     let type_token = expect_keyword(tokens, KeywordType::Int).unwrap();
     let identifier = expect_identifier(tokens).unwrap();
     let mut expression = None;
     if tokens.front().unwrap().is_operator(&OperatorType::Assign) {
         expect_operator(tokens, OperatorType::Assign);
-        expression = Some(parse_expression(tokens));
+        expression = Some(parse_expression(tokens)?);
     }
-    Tree::Declaration(
+    Ok(Tree::Declaration(
         Box::new(Tree::Type(Type::Int, type_token.span())),
-        name(identifier),
+        name(identifier)?,
         expression,
-    )
+    ))
 }
 
-fn parse_return(tokens: &mut VecDeque<Token>) -> Tree {
-    let return_keyword = expect_keyword(tokens, KeywordType::Return).unwrap();
-    let expression = parse_expression(tokens);
-    Tree::Return(expression, return_keyword.span().start_owned())
+fn parse_return(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
+    let return_keyword = expect_keyword(tokens, KeywordType::Return).ok_or(())?;
+    let expression = parse_expression(tokens)?;
+    Ok(Tree::Return(
+        expression,
+        return_keyword.span().start_owned(),
+    ))
 }
 
-fn parse_simple(tokens: &mut VecDeque<Token>) -> Tree {
-    let lvalue = parse_lvalue(tokens);
-    let assignment_operator = parse_assignment_operator(tokens);
-    let expression = parse_expression(tokens);
-    Tree::Assignment(lvalue, assignment_operator, expression)
+fn parse_simple(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
+    let lvalue = parse_lvalue(tokens)?;
+    let assignment_operator = parse_assignment_operator(tokens)?;
+    let expression = parse_expression(tokens)?;
+    Ok(Tree::Assignment(lvalue, assignment_operator, expression))
 }
 
-fn parse_assignment_operator(tokens: &mut VecDeque<Token>) -> Token {
+fn parse_assignment_operator(tokens: &mut VecDeque<Token>) -> Result<Token, ()> {
     if tokens.front().unwrap().is_assignment_operator() {
         consume(tokens);
-        return tokens.pop_front().unwrap();
+        return tokens.pop_front().ok_or(());
     }
     panic!();
 }
 
-fn parse_lvalue(tokens: &mut VecDeque<Token>) -> Box<Tree> {
+#[must_use]
+fn parse_lvalue(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
     if tokens
         .front()
         .unwrap()
@@ -119,12 +127,13 @@ fn parse_lvalue(tokens: &mut VecDeque<Token>) -> Box<Tree> {
         expect_seperator(tokens, SeperatorType::ParenClose);
         return inner;
     }
-    let identifier = expect_identifier(tokens).unwrap();
-    Box::new(Tree::LValueIdentifier(name(identifier)))
+    let identifier = expect_identifier(tokens).ok_or(())?;
+    Ok(Box::new(Tree::LValueIdentifier(name(identifier)?)))
 }
 
-fn parse_expression(tokens: &mut VecDeque<Token>) -> Box<Tree> {
-    let mut lhs = parse_factor(tokens);
+#[must_use]
+fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
+    let mut lhs = parse_factor(tokens)?;
     loop {
         match tokens.pop_front().unwrap() {
             Token::Operator(_, operator)
@@ -132,14 +141,15 @@ fn parse_expression(tokens: &mut VecDeque<Token>) -> Box<Tree> {
                     || operator.eq(&OperatorType::Div)
                     || operator.eq(&OperatorType::Mod) =>
             {
-                lhs = Box::new(Tree::BinaryOperation(lhs, parse_factor(tokens), operator));
+                lhs = Box::new(Tree::BinaryOperation(lhs, parse_factor(tokens)?, operator));
             }
-            _ => return lhs,
+            _ => return Ok(lhs),
         }
     }
 }
 
-fn parse_factor(tokens: &mut VecDeque<Token>) -> Box<Tree> {
+#[must_use]
+fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
     match tokens.pop_front().unwrap() {
         Token::Separator(_, seperator) if seperator.eq(&SeperatorType::ParenOpen) => {
             let expression = parse_expression(tokens);
@@ -147,21 +157,22 @@ fn parse_factor(tokens: &mut VecDeque<Token>) -> Box<Tree> {
             expression
         }
         Token::Operator(span, operator) if operator.eq(&OperatorType::Minus) => {
-            Box::new(Tree::Negate(parse_factor(tokens), span))
+            Ok(Box::new(Tree::Negate(parse_factor(tokens)?, span)))
         }
         identifier @ Token::Identifier(_, _) => {
-            Box::new(Tree::IdentifierExpression(name(identifier)))
+            Ok(Box::new(Tree::IdentifierExpression(name(identifier)?)))
         }
-        Token::NumberLiteral(span, value, base) => Box::new(Tree::Literal(value, base, span)),
-        _ => panic!(),
+        Token::NumberLiteral(span, value, base) => Ok(Box::new(Tree::Literal(value, base, span))),
+        _ => Err(()),
     }
 }
 
-fn name(identifier: Token) -> Box<Tree> {
+#[must_use]
+fn name(identifier: Token) -> Result<Box<Tree>, ()> {
     if let Token::Identifier(span, value) = identifier {
-        return Box::new(Tree::Name(Name::IdentifierName(value), span));
+        return Ok(Box::new(Tree::Name(Name::IdentifierName(value), span)));
     }
-    panic!();
+    Err(())
 }
 
 fn expect_keyword(tokens: &mut VecDeque<Token>, keyword: KeywordType) -> Option<Token> {

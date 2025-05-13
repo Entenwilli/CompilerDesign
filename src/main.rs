@@ -30,7 +30,11 @@ fn main() {
     let program = lex_parse(input);
     println!("Parsed into AST: {}\n", program);
     let mut state = AnalysisState::default();
-    analyze(Box::new(program.clone()), &mut state);
+    let semantic_analysis = analyze(Box::new(program.clone()), &mut state);
+    if semantic_analysis.is_err() {
+        println!("Semantic Error: {}", semantic_analysis.err().unwrap());
+        exit(7)
+    }
     let mut ir_graphs = Vec::new();
     if let Tree::Program(functions) = program {
         for function in functions {
@@ -60,5 +64,9 @@ fn lex_parse(path: &Path) -> Tree {
     let mut lexer = Lexer::new(source);
     let tokens = std::iter::from_fn(|| lexer.next_token()).collect::<VecDeque<_>>();
     let parser = Parser::new(tokens);
-    parser.parse_program()
+    let parse_result = parser.parse_program();
+    if parse_result.is_err() {
+        exit(42)
+    }
+    parse_result.unwrap()
 }
