@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display},
+};
 
 use crate::ir::{
     graph::{IRGraph, END_BLOCK},
@@ -7,8 +10,10 @@ use crate::ir::{
 
 pub trait Register {
     fn as_assembly(&self) -> String;
+    fn hardware_register(&self) -> bool;
 }
 
+#[derive(Debug)]
 pub enum HardwareRegister {
     Rax,
     Rbx,
@@ -33,7 +38,7 @@ impl HardwareRegister {
             HardwareRegister::Rbx => "rbx".to_string(),
             HardwareRegister::Rcx => "rcx".to_string(),
             HardwareRegister::Rdx => "rdx".to_string(),
-            HardwareRegister::Rsi => "rs".to_string(),
+            HardwareRegister::Rsi => "rsi".to_string(),
             HardwareRegister::Rdi => "rdi".to_string(),
             HardwareRegister::R8 => "r8".to_string(),
             HardwareRegister::R9 => "r9".to_string(),
@@ -51,8 +56,12 @@ impl Register for HardwareRegister {
     fn as_assembly(&self) -> String {
         format!("%{}", self.as_string())
     }
+    fn hardware_register(&self) -> bool {
+        true
+    }
 }
 
+#[derive(Debug)]
 pub struct StackRegister {
     offset: usize,
 }
@@ -63,7 +72,7 @@ impl StackRegister {
     }
 
     pub fn as_assembly(&self) -> String {
-        format!("rip[{}]", &self.offset)
+        format!("{}(%rsp)", &self.offset)
     }
 }
 
@@ -71,11 +80,15 @@ impl Register for StackRegister {
     fn as_assembly(&self) -> String {
         self.as_assembly()
     }
+
+    fn hardware_register(&self) -> bool {
+        false
+    }
 }
 
 impl Display for StackRegister {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[rip, #{}]", self.offset)
+        write!(f, "{}(%rsp)", self.offset)
     }
 }
 
@@ -92,7 +105,7 @@ impl<'a> RegisterAllocator<'a> {
             registers: HashMap::new(),
             available_hardware_register: vec![
                 //HardwareRegister::Rax,
-                HardwareRegister::Rbx,
+                //HardwareRegister::Rbx,
                 HardwareRegister::Rcx,
                 HardwareRegister::Rdx,
                 HardwareRegister::Rsi,
@@ -109,11 +122,15 @@ impl<'a> RegisterAllocator<'a> {
         }
     }
 
-    pub fn allocate_registers(mut self, graph: &'a IRGraph) -> HashMap<&Node, Box<dyn Register>> {
+    pub fn allocate_registers(
+        mut self,
+        graph: &'a IRGraph,
+    ) -> (HashMap<&'a Node, Box<dyn Register>>, usize) {
         let mut visited = Vec::new();
         visited.push(END_BLOCK);
         self.scan(END_BLOCK, graph, &mut visited);
-        self.registers
+        //dbg!(&self.registers);
+        (self.registers, self.current_stack_offset)
     }
 
     pub fn scan(&mut self, current_index: usize, graph: &'a IRGraph, visited: &mut Vec<usize>) {
@@ -144,6 +161,10 @@ impl<'a> RegisterAllocator<'a> {
     pub fn has_available_hardware_register(&self) -> bool {
         !self.available_hardware_register.is_empty()
     }
+
+    pub fn current_stack_offset(&self) -> usize {
+        self.current_stack_offset
+    }
 }
 
 fn needs_register(node: &Node) -> bool {
@@ -156,5 +177,11 @@ fn needs_register(node: &Node) -> bool {
 impl Default for RegisterAllocator<'_> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Debug for dyn Register {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Register: {}", self.as_assembly())
     }
 }

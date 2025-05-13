@@ -9,6 +9,7 @@ use backend::codegen::CodeGenerator;
 use ir::constructor::IRGraphConstructor;
 use lexer::Lexer;
 use parser::{ast::Tree, error::ParseError, Parser};
+use rand::{distr::Alphanumeric, Rng};
 use semantic::{analyze, AnalysisState};
 
 pub mod backend;
@@ -25,6 +26,12 @@ fn main() {
         exit(3);
     }
     let input = Path::new(args.get(1).unwrap());
+    let random_name = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect::<String>();
+    let temp = env::temp_dir().to_str().unwrap().to_owned() + "/" + &random_name + ".s";
     let output = Path::new(args.get(2).unwrap());
 
     let program = lex_parse(input);
@@ -51,15 +58,16 @@ fn main() {
         println!("{}", &ir_graph);
     }
     let code_generator = CodeGenerator::new(ir_graphs);
-    fs::write("temp.s", code_generator.generate())
+    fs::write(temp.clone(), code_generator.generate())
         .expect("Filesystem: Failed to write assembler output");
     let gcc = Command::new("gcc")
-        .arg("temp.s")
+        .arg(temp)
         .arg("-o")
         .arg(output)
         .output()
         .expect("Failed to invoke GCC!");
     println!("{}", std::str::from_utf8(gcc.stderr.as_slice()).unwrap());
+    //sleep(Duration::from_secs(1));
 }
 
 fn lex_parse(path: &Path) -> Tree {

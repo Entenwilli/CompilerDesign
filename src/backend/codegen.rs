@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use crate::ir::{
     graph::{IRGraph, END_BLOCK},
-    node::{BinaryOperationData, ConstantIntData, Node, RETURN_RESULT_INDEX},
+    node::{
+        BinaryOperationData, ConstantIntData, Node, BINARY_OPERATION_LEFT, BINARY_OPERATION_RIGHT,
+        RETURN_RESULT_INDEX,
+    },
 };
 
 use super::regalloc::{HardwareRegister, Register, RegisterAllocator};
@@ -36,15 +39,24 @@ impl CodeGenerator {
         code.push_str(TEMPLATE);
         for ir_graph in self.ir_graphs.iter() {
             let register_allocator = RegisterAllocator::new();
-            let registers = register_allocator.allocate_registers(ir_graph);
-            code.push_str(&self.generate_for_graph(ir_graph, registers));
+            code.push_str(&self.generate_for_graph(ir_graph, register_allocator));
         }
         code
     }
 
-    pub fn generate_for_graph(&self, ir_graph: &IRGraph, registers: Registers) -> String {
+    pub fn generate_for_graph(
+        &self,
+        ir_graph: &IRGraph,
+        register_allocator: RegisterAllocator,
+    ) -> String {
         let mut visited = Vec::new();
-        self.generate_for_node(END_BLOCK, ir_graph, &registers, &mut visited)
+        let (registers, stack_offset) = register_allocator.allocate_registers(ir_graph);
+        let mut code = String::new();
+        code.push_str("pushq %rbp\n");
+        code.push_str("movq %rsp, %rbp\n");
+        code.push_str(&format!("subq ${}, %rsp\n", stack_offset));
+        code.push_str(&self.generate_for_node(END_BLOCK, ir_graph, &registers, &mut visited));
+        code
     }
 
     pub fn generate_for_node(
@@ -123,30 +135,55 @@ impl CodeGenerator {
     pub fn generate_binary_operation(
         &self,
         node_index: usize,
-        operation_data: &BinaryOperationData,
+        _operation_data: &BinaryOperationData,
         ir_graph: &IRGraph,
         registers: &Registers,
         op_code: &str,
     ) -> String {
         let left_value = registers
-            .get(ir_graph.get_node(operation_data.left()))
+            .get(ir_graph.get_node(predecessor_skip_projection(
+                node_index,
+                BINARY_OPERATION_LEFT,
+                ir_graph,
+            )))
             .unwrap();
         let right_value = registers
-            .get(ir_graph.get_node(operation_data.right()))
+            .get(ir_graph.get_node(predecessor_skip_projection(
+                node_index,
+                BINARY_OPERATION_RIGHT,
+                ir_graph,
+            )))
             .unwrap();
+
         let destination_register = registers.get(ir_graph.get_node(node_index)).unwrap();
+
         let mut code = String::new();
+        if !left_value.hardware_register() && !right_value.hardware_register() {
+            code.push_str(&move_stack_variable(left_value));
+        }
         code.push_str("movq ");
-        code.push_str(&left_value.as_assembly());
+        if !left_value.hardware_register() && !right_value.hardware_register() {
+            code.push_str(&HardwareRegister::Rbx.as_assembly());
+        } else {
+            code.push_str(&left_value.as_assembly());
+        }
         code.push_str(", ");
         code.push_str(&destination_register.as_assembly());
         code.push('\n');
 
+        if !right_value.hardware_register() && !destination_register.hardware_register() {
+            code.push_str(&move_stack_variable(right_value));
+        }
+
         code.push_str(op_code);
         code.push(' ');
-        code.push_str(&destination_register.as_assembly());
+        if !right_value.hardware_register() && !destination_register.hardware_register() {
+            code.push_str(&HardwareRegister::Rbx.as_assembly());
+        } else {
+            code.push_str(&right_value.as_assembly());
+        }
         code.push_str(", ");
-        code.push_str(&right_value.as_assembly());
+        code.push_str(&destination_register.as_assembly());
         code.push('\n');
         code
     }
@@ -154,16 +191,24 @@ impl CodeGenerator {
     pub fn generate_binary_operation_div(
         &self,
         node_index: usize,
-        operation_data: &BinaryOperationData,
+        _operation_data: &BinaryOperationData,
         ir_graph: &IRGraph,
         registers: &Registers,
         op_code: &str,
     ) -> String {
         let left_value = registers
-            .get(ir_graph.get_node(operation_data.left()))
+            .get(ir_graph.get_node(predecessor_skip_projection(
+                node_index,
+                BINARY_OPERATION_LEFT,
+                ir_graph,
+            )))
             .unwrap();
         let right_value = registers
-            .get(ir_graph.get_node(operation_data.right()))
+            .get(ir_graph.get_node(predecessor_skip_projection(
+                node_index,
+                BINARY_OPERATION_RIGHT,
+                ir_graph,
+            )))
             .unwrap();
         let destination_register = registers.get(ir_graph.get_node(node_index)).unwrap();
         let mut code = String::new();
@@ -206,8 +251,8 @@ impl CodeGenerator {
         code.push_str(", %rax");
         code.push('\n');
 
-        code.push_str("ret");
-        code.push('\n');
+        code.push_str("leave\n");
+        code.push_str("ret\n");
         code
     }
 
@@ -240,4 +285,14 @@ fn predecessor_skip_projection(node: usize, predecessor_index: usize, graph: &IR
     } else {
         *predecessor
     }
+}
+
+fn move_stack_variable(register: &Box<dyn Register>) -> String {
+    let mut code = String::new();
+    code.push_str("movq ");
+    code.push_str(&register.as_assembly());
+    code.push_str(", ");
+    code.push_str(&HardwareRegister::Rbx.as_assembly());
+    code.push('\n');
+    code
 }

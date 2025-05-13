@@ -1,4 +1,3 @@
-use core::panic;
 use std::collections::VecDeque;
 
 use ast::Tree;
@@ -114,7 +113,9 @@ fn parse_assignment_operator(tokens: &mut VecDeque<Token>) -> Result<Token, Pars
         consume(tokens);
         return tokens.pop_front().ok_or(ParseError::Finished);
     }
-    panic!();
+    Err(ParseError::Error(
+        "Expected assignment operator".to_string(),
+    ))
 }
 
 fn parse_lvalue(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
