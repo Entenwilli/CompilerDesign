@@ -223,12 +223,14 @@ impl CodeGenerator {
         code.push('\n');
 
         code.push_str("mov ");
-        code.push_str(&left_value.as_16_bit_assembly());
-        code.push_str(", %ax\n");
+        code.push_str(&left_value.as_32_bit_assembly());
+        code.push_str(", %eax\n");
+
+        code.push_str("CDQ\n");
 
         code.push_str(op_code);
         code.push(' ');
-        code.push_str(&right_value.as_16_bit_assembly());
+        code.push_str(&right_value.as_32_bit_assembly());
         code.push('\n');
 
         code.push_str("mov ");
