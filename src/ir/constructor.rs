@@ -156,7 +156,10 @@ impl IRGraphConstructor {
                         .to_be_bytes();
                     i32::from_be_bytes(bytes)
                 } else if base == 10 {
-                    i64::from_str_radix(constant.as_str(), base as u32).unwrap() as i32
+                    let bytes = u32::from_str_radix(constant.as_str(), base as u32)
+                        .unwrap()
+                        .to_be_bytes();
+                    i32::from_be_bytes(bytes)
                 } else {
                     return None;
                 };

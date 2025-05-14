@@ -244,7 +244,8 @@ impl Lexer {
         let identifier = &self
             .source
             .get(self.position..self.position + offset)
-            .ok_or(())?;
+            .ok_or(())?
+            .to_lowercase();
         if let Some(keyword) = KeywordType::from_string(identifier) {
             return Ok(Token::Keyword(self.build_span(offset), keyword));
         }

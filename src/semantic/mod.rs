@@ -45,9 +45,15 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 let parsed_value = i32::from_be_bytes(bytes);
                 dbg!(parsed_value);
             } else if base == 10 {
-                if i32::from_str_radix(value.as_str(), base as u32).is_err() {
+                if u32::from_str_radix(value.as_str(), base as u32).is_err() {
+                    dbg!(&value, u32::from_str_radix(value.as_str(), base as u32));
                     return Err("Invalid integer literal!".to_string());
                 }
+                let bytes = u32::from_str_radix(value.as_str(), 10)
+                    .unwrap()
+                    .to_be_bytes();
+                let parsed_value = i32::from_be_bytes(bytes);
+                dbg!(parsed_value);
             } else {
                 return Err("Invalid base!".to_string());
             }
