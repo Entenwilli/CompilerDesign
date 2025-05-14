@@ -99,7 +99,7 @@ impl CodeGenerator {
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
-                    "mul",
+                    "imul",
                     "mul",
                 ));
             }
@@ -109,7 +109,7 @@ impl CodeGenerator {
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
-                    "div",
+                    "idiv",
                     "div",
                 ));
             }
@@ -119,7 +119,7 @@ impl CodeGenerator {
                     data.binary_operation_data(),
                     ir_graph,
                     registers,
-                    "div",
+                    "idiv",
                     "mod",
                 ));
             }
