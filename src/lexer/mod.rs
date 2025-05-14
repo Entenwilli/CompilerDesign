@@ -244,11 +244,15 @@ impl Lexer {
         let identifier = &self
             .source
             .get(self.position..self.position + offset)
-            .ok_or(())?
-            .to_lowercase();
+            .ok_or(())?;
         if let Some(keyword) = KeywordType::from_string(identifier) {
             return Ok(Token::Keyword(self.build_span(offset), keyword));
         }
+        // Do not allow variable names with keywords in them!
+        if KeywordType::from_string(&identifier.to_lowercase()).is_some() {
+            return Err(());
+        }
+
         let identifier_string = identifier.to_string();
         Ok(Token::Identifier(
             self.build_span(offset),
