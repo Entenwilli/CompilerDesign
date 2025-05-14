@@ -64,18 +64,18 @@ impl IRGraphConstructor {
                             match operator_type {
                                 OperatorType::AssignMinus => {
                                     let lhs = self.read_variable(name.clone(), self.current_block);
-                                    self.create_sub(lhs, rhs);
-                                    self.write_variable(name, self.current_block, rhs);
+                                    let desugar = self.create_sub(lhs, rhs);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::AssignPlus => {
                                     let lhs = self.read_variable(name.clone(), self.current_block);
-                                    self.create_add(lhs, rhs);
-                                    self.write_variable(name, self.current_block, rhs);
+                                    let desugar = self.create_add(lhs, rhs);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::AssignMul => {
                                     let lhs = self.read_variable(name.clone(), self.current_block);
-                                    self.create_mul(lhs, rhs);
-                                    self.write_variable(name, self.current_block, rhs);
+                                    let desugar = self.create_mul(lhs, rhs);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::AssignDiv => {
                                     let lhs = self.read_variable(name.clone(), self.current_block);
