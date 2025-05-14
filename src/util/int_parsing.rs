@@ -14,10 +14,12 @@ pub fn parse_int(string: String, radix: u64) -> Option<i32> {
         number
     };
     let mut bytes = u32::from_str_radix(&number, radix as u32).ok()?;
-    let value = if ((bytes & SIGN_MASK) >> 31) == 1 {
+    let value = if ((bytes & SIGN_MASK) >> 31) == 1 && radix == 16 {
         negative = !negative;
         bytes = (bytes << 1) >> 1;
         (i32::MAX - bytes as i32) + 1
+    } else if bytes >= 2147483649 {
+        return None;
     } else {
         bytes as i32
     };
