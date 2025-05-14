@@ -161,11 +161,11 @@ impl CodeGenerator {
         let destination_register = registers.get(ir_graph.get_node(node_index)).unwrap();
 
         let mut code = String::new();
-        if !left_value.hardware_register() && !right_value.hardware_register() {
+        if !left_value.hardware_register() && !destination_register.hardware_register() {
             code.push_str(&move_stack_variable(left_value));
         }
         code.push_str("mov ");
-        if !left_value.hardware_register() && !right_value.hardware_register() {
+        if !left_value.hardware_register() && !destination_register.hardware_register() {
             code.push_str(&HardwareRegister::Rbx.as_assembly());
         } else {
             code.push_str(&left_value.as_assembly());
