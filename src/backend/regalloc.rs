@@ -10,6 +10,8 @@ use crate::ir::{
 
 pub trait Register {
     fn as_assembly(&self) -> String;
+    fn as_32_bit_assembly(&self) -> String;
+    fn as_16_bit_assembly(&self) -> String;
     fn hardware_register(&self) -> bool;
 }
 
@@ -50,6 +52,44 @@ impl HardwareRegister {
             HardwareRegister::R15 => "r15".to_string(),
         }
     }
+
+    pub fn as_assembly_32_bit(&self) -> String {
+        match self {
+            HardwareRegister::Rax => "eax".to_string(),
+            HardwareRegister::Rbx => "ebx".to_string(),
+            HardwareRegister::Rcx => "ecx".to_string(),
+            HardwareRegister::Rdx => "edx".to_string(),
+            HardwareRegister::Rsi => "esi".to_string(),
+            HardwareRegister::Rdi => "edi".to_string(),
+            HardwareRegister::R8 => "r8d".to_string(),
+            HardwareRegister::R9 => "r9d".to_string(),
+            HardwareRegister::R10 => "r10d".to_string(),
+            HardwareRegister::R11 => "r11d".to_string(),
+            HardwareRegister::R12 => "r12d".to_string(),
+            HardwareRegister::R13 => "r13d".to_string(),
+            HardwareRegister::R14 => "r14d".to_string(),
+            HardwareRegister::R15 => "r15d".to_string(),
+        }
+    }
+
+    pub fn as_assembly_16_bit(&self) -> String {
+        match self {
+            HardwareRegister::Rax => "ax".to_string(),
+            HardwareRegister::Rbx => "bx".to_string(),
+            HardwareRegister::Rcx => "cx".to_string(),
+            HardwareRegister::Rdx => "dx".to_string(),
+            HardwareRegister::Rsi => "si".to_string(),
+            HardwareRegister::Rdi => "di".to_string(),
+            HardwareRegister::R8 => "r8w".to_string(),
+            HardwareRegister::R9 => "r9w".to_string(),
+            HardwareRegister::R10 => "r10w".to_string(),
+            HardwareRegister::R11 => "r11w".to_string(),
+            HardwareRegister::R12 => "r12w".to_string(),
+            HardwareRegister::R13 => "r13w".to_string(),
+            HardwareRegister::R14 => "r14w".to_string(),
+            HardwareRegister::R15 => "r15w".to_string(),
+        }
+    }
 }
 
 impl Register for HardwareRegister {
@@ -58,6 +98,14 @@ impl Register for HardwareRegister {
     }
     fn hardware_register(&self) -> bool {
         true
+    }
+
+    fn as_32_bit_assembly(&self) -> String {
+        format!("%{}", self.as_assembly_32_bit())
+    }
+
+    fn as_16_bit_assembly(&self) -> String {
+        format!("%{}", self.as_assembly_16_bit())
     }
 }
 
@@ -78,6 +126,14 @@ impl StackRegister {
 
 impl Register for StackRegister {
     fn as_assembly(&self) -> String {
+        self.as_assembly()
+    }
+
+    fn as_32_bit_assembly(&self) -> String {
+        self.as_assembly()
+    }
+
+    fn as_16_bit_assembly(&self) -> String {
         self.as_assembly()
     }
 

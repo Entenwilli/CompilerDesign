@@ -216,22 +216,26 @@ impl CodeGenerator {
             .unwrap();
         let destination_register = registers.get(ir_graph.get_node(node_index)).unwrap();
         let mut code = String::new();
-        code.push_str("movq ");
-        code.push_str(&left_value.as_assembly());
-        code.push_str(", ");
-        code.push_str(&HardwareRegister::Rax.as_assembly());
+        code.push_str("mov $0, %rdx\n");
+        code.push_str("mov $0, %rax\n");
+        code.push_str("mov $0, ");
+        code.push_str(&destination_register.as_assembly());
         code.push('\n');
+
+        code.push_str("mov ");
+        code.push_str(&left_value.as_16_bit_assembly());
+        code.push_str(", %ax\n");
 
         code.push_str(op_code);
         code.push(' ');
-        code.push_str(&right_value.as_assembly());
+        code.push_str(&right_value.as_16_bit_assembly());
         code.push('\n');
 
-        code.push_str("movq ");
+        code.push_str("mov ");
         if mode == "mod" {
-            code.push_str(&HardwareRegister::Rdx.as_assembly());
+            code.push_str("%rdx");
         } else {
-            code.push_str(&HardwareRegister::Rax.as_assembly());
+            code.push_str("%rax");
         }
         code.push_str(", ");
         code.push_str(&destination_register.as_assembly());
