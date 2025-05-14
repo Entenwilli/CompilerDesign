@@ -80,7 +80,7 @@ fn lex_parse(path: &Path) -> Tree {
                 if error.eq(&ParseError::Finished) {
                     None
                 } else {
-                    println!("Lexing Error");
+                    println!("Lexing Error: {:?}", error);
                     exit(42)
                 }
             }

@@ -35,7 +35,8 @@ impl Parser {
 fn parse_function(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let return_type = expect_keyword(tokens, KeywordType::Int)
         .ok_or(ParseError::Error("Expected int".to_string()))?;
-    let identifier = expect_identifier(tokens).unwrap();
+    let identifier =
+        expect_identifier(tokens).ok_or(ParseError::Error("Expected identifier".to_string()))?;
     if let Token::Identifier(_, name) = identifier.clone() {
         if name != "main" {
             return Err(ParseError::Error(format!(

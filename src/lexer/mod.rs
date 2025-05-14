@@ -1,3 +1,5 @@
+use std::ops::{Range, RangeFrom};
+
 use token::{KeywordType, OperatorType, SeperatorType, Token};
 
 use crate::{
@@ -31,7 +33,7 @@ impl Lexer {
                 .clone()
                 .ok_or(ParseError::Error(format!("{:?}", whitespace.unwrap())));
         }
-        if self.position >= self.source.len() {
+        if self.position >= self.source.chars().count() {
             return Err(ParseError::Finished);
         }
 
@@ -83,6 +85,7 @@ impl Lexer {
         let mut comment_depth = 0;
         while self.has_more(0) {
             match self.peek()? {
+                '\x0b' => return Some(Token::ErrorToken(self.build_span(1), "\x0b".to_string())),
                 ' ' | '\t' => {
                     self.position += 1;
                 }
@@ -100,15 +103,15 @@ impl Lexer {
                         continue;
                     }
                     if self.has_more(1) {
-                        match self.peek_pos(1)? {
-                            '/' if state.eq(&CommentState::None) => {
+                        match self.peek_pos(1) {
+                            Some('/') if state.eq(&CommentState::None) => {
                                 state = CommentState::SingleLine
                             }
-                            '*' => {
+                            Some('*') => {
                                 state = CommentState::MultiLine;
                                 comment_depth += 1;
                             }
-                            _ => {
+                            Some(_) => {
                                 if state.eq(&CommentState::MultiLine) {
                                     self.position += 1;
                                     continue;
@@ -116,6 +119,7 @@ impl Lexer {
                                     return None;
                                 }
                             }
+                            None => self.position += 1,
                         }
                         comment_start = self.position;
                         self.position += 2;
@@ -129,7 +133,11 @@ impl Lexer {
                 }
                 char => match state {
                     CommentState::MultiLine => {
-                        if char.eq(&'*') && self.has_more(1) && self.peek_pos(1)?.eq(&'/') {
+                        if char.eq(&'*')
+                            && self.has_more(1)
+                            && self.peek_pos(1).is_some()
+                            && self.peek_pos(1).unwrap().eq(&'/')
+                        {
                             self.position += 2;
                             comment_depth -= 1;
                             state = match comment_depth {
@@ -150,10 +158,22 @@ impl Lexer {
         if !self.has_more(0) && state.eq(&CommentState::MultiLine) {
             return Some(Token::ErrorToken(
                 self.build_span(0),
-                self.source.as_str()[comment_start..].to_string(),
+                self.get_substring_from(comment_start..),
             ));
         }
         None
+    }
+
+    fn get_substring(&self, range: Range<usize>) -> String {
+        self.source
+            .chars()
+            .skip(range.start)
+            .take(range.end - range.start)
+            .collect::<String>()
+    }
+
+    fn get_substring_from(&self, range: RangeFrom<usize>) -> String {
+        self.source.chars().skip(range.start).collect::<String>()
     }
 
     fn has_more(&self, offset: usize) -> bool {
@@ -190,9 +210,9 @@ impl Lexer {
             {
                 offset += 1;
             }
-            let value = self.source.as_str()[self.position..self.position + offset]
-                .to_lowercase()
-                .to_string();
+            let value = self
+                .get_substring(self.position..self.position + offset)
+                .to_lowercase();
             if offset == 2 {
                 return Ok(Token::ErrorToken(self.build_span(2), value));
             }
@@ -217,11 +237,10 @@ impl Lexer {
         {
             return Ok(Token::ErrorToken(
                 self.build_span(offset),
-                self.source.as_str()[self.position..self.position + offset].to_string(),
+                self.get_substring(self.position..self.position + offset),
             ));
         }
-        let number_literal =
-            self.source.as_str()[self.position..self.position + offset].to_string();
+        let number_literal = self.get_substring(self.position..self.position + offset);
         Ok(Token::NumberLiteral(
             self.build_span(offset),
             number_literal,
@@ -243,11 +262,13 @@ impl Lexer {
             offset += 1;
         }
 
-        let identifier = &self
+        let identifier = self
             .source
-            .get(self.position..self.position + offset)
-            .ok_or(())?;
-        if let Some(keyword) = KeywordType::from_string(identifier) {
+            .chars()
+            .skip(self.position)
+            .take(offset)
+            .collect::<String>();
+        if let Some(keyword) = KeywordType::from_string(&identifier) {
             return Ok(Token::Keyword(self.build_span(offset), keyword));
         }
         // Do not allow variable names with keywords in them!
@@ -286,7 +307,7 @@ impl Lexer {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum CommentState {
     None,
     SingleLine,
