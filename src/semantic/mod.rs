@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use crate::parser::{ast::Tree, symbols::Name};
+use crate::{
+    lexer::token::{OperatorType, Token},
+    parser::{ast::Tree, symbols::Name},
+    util::int_parsing::parse_int,
+};
 
 pub struct AnalysisState {
     return_state: ReturnState,
@@ -32,9 +36,10 @@ enum VariableStatus {
 pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String> {
     match *tree {
         Tree::Literal(value, base, _) => {
-            if i32::from_str_radix(value.as_str(), base as u32).is_err() {
-                return Err("Invalid integer literal!".to_string());
+            if base != 16 && base != 10 {
+                return Err("Invalid base!".to_string());
             }
+            parse_int(value, base).ok_or("Not valid integer literal!".to_string())?;
             Ok(())
         }
         Tree::Return(sub, _) => {
@@ -52,12 +57,36 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             state.return_state = ReturnState::NotReturing;
             Ok(())
         }
-        Tree::Assignment(lvalue, _, expression) => {
+        Tree::Assignment(lvalue, operator, expression) => {
             analyze(lvalue.clone(), state)?;
             analyze(expression.clone(), state)?;
             if let Tree::LValueIdentifier(identifier) = *lvalue {
                 if let Tree::Name(name, _) = *identifier {
-                    state.namespace.get(&name).ok_or("Undeclared variable!")?;
+                    if let Token::Operator(_, operator_type) = operator {
+                        if let OperatorType::Assign = operator_type {
+                            state
+                                .namespace
+                                .get(&name)
+                                .ok_or(format!("Undeclared variable {}!", name.as_string()))?;
+                            if state
+                                .namespace
+                                .get(&name)
+                                .unwrap()
+                                .ne(&VariableStatus::Initialized)
+                            {
+                                state.namespace.insert(name, VariableStatus::Initialized);
+                            }
+                        } else if !state.namespace.contains_key(&name) {
+                            return Err(format!("Undecleared variable {} used!", name.as_string()));
+                        } else if state
+                            .namespace
+                            .get(&name)
+                            .unwrap()
+                            .eq(&VariableStatus::Declared)
+                        {
+                            return Err("Decleared variable without value used!".to_string());
+                        }
+                    }
                 }
             };
             Ok(())
@@ -71,13 +100,11 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 VariableStatus::Declared
             };
             if let Tree::Name(identifier, _) = *name {
-                if state
-                    .namespace
-                    .get(&identifier)
-                    .unwrap()
-                    .ge(&variable_state)
-                {
-                    panic!("Reinitializing or redeclaring variables are not allowed!");
+                let variable_status = state.namespace.get(&identifier);
+                if variable_status.is_some() {
+                    return Err(
+                        "Reinitializing or redeclaring variables are not allowed!".to_string()
+                    );
                 }
                 state.namespace.insert(identifier.clone(), variable_state);
             }
@@ -89,7 +116,21 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
         Tree::IdentifierExpression(identifier) => {
             analyze(identifier.clone(), state)?;
             if let Tree::Name(name, _) = *identifier {
-                state.namespace.get(&name).ok_or("Undeclared variable!")?;
+                state.namespace.get(&name).ok_or(format!(
+                    "Undeclared variable {} used in expression!",
+                    name.as_string()
+                ))?;
+                if state
+                    .namespace
+                    .get(&name)
+                    .unwrap()
+                    .eq(&VariableStatus::Declared)
+                {
+                    return Err(format!(
+                        "Uninitialized variable {} used in expression!",
+                        name.as_string()
+                    ));
+                }
             };
             Ok(())
         }

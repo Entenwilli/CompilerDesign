@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::{
     lexer::token::{OperatorType, Token},
     parser::{ast::Tree, symbols::Name},
+    util::int_parsing::parse_int,
 };
 
 use super::{
@@ -63,26 +64,31 @@ impl IRGraphConstructor {
                         if let Token::Operator(_, operator_type) = operator {
                             match operator_type {
                                 OperatorType::AssignMinus => {
-                                    let lhs = self.read_variable(name, self.current_block);
-                                    self.create_sub(lhs, rhs);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
+                                    let desugar = self.create_sub(lhs, rhs);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::AssignPlus => {
-                                    let lhs = self.read_variable(name, self.current_block);
-                                    self.create_add(lhs, rhs);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
+                                    let desugar = self.create_add(lhs, rhs);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::AssignMul => {
-                                    let lhs = self.read_variable(name, self.current_block);
-                                    self.create_mul(lhs, rhs);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
+                                    let desugar = self.create_mul(lhs, rhs);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::AssignDiv => {
-                                    let lhs = self.read_variable(name, self.current_block);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
                                     let div = self.create_div(lhs, rhs);
-                                    self.create_div_mod_projection(div);
+                                    let desugar = self.create_div_mod_projection(div);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::AssignMod => {
-                                    let lhs = self.read_variable(name, self.current_block);
+                                    let lhs = self.read_variable(name.clone(), self.current_block);
                                     let mod_node = self.create_mod(lhs, rhs);
-                                    self.create_div_mod_projection(mod_node);
+                                    let desugar = self.create_div_mod_projection(mod_node);
+                                    self.write_variable(name, self.current_block, desugar);
                                 }
                                 OperatorType::Assign => {
                                     self.write_variable(name, self.current_block, rhs);
@@ -145,9 +151,8 @@ impl IRGraphConstructor {
                 }
             }
             Tree::Literal(constant, base, _) => {
-                let node = self.create_constant_int(
-                    i32::from_str_radix(constant.as_str(), base as u32).unwrap(),
-                );
+                let value = parse_int(constant, base)?;
+                let node = self.create_constant_int(value);
                 Some(node)
             }
             Tree::LValueIdentifier(_) => None,

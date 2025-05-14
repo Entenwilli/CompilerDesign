@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub enum Node {
     Add(AddData),
     Block(BlockData),
@@ -65,7 +65,7 @@ impl Node {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct NodeData {
     block_index: usize,
     predecessors: Vec<usize>,
@@ -104,7 +104,7 @@ impl NodeData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct AddData {
     binary_operation_data: BinaryOperationData,
 }
@@ -121,7 +121,9 @@ impl AddData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+pub const BINARY_OPERATION_LEFT: usize = 0;
+pub const BINARY_OPERATION_RIGHT: usize = 1;
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct BinaryOperationData {
     node_data: NodeData,
 }
@@ -143,9 +145,17 @@ impl BinaryOperationData {
             node_data: NodeData::new(block, vec![left, right, side_effect]),
         }
     }
+
+    pub fn left(&self) -> usize {
+        self.node_data.predecessors[0]
+    }
+
+    pub fn right(&self) -> usize {
+        self.node_data.predecessors[1]
+    }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct BlockData {
     node_data: NodeData,
 }
@@ -158,7 +168,7 @@ impl BlockData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct ConstantIntData {
     node_data: NodeData,
     value: i32,
@@ -177,7 +187,7 @@ impl ConstantIntData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct DivisionData {
     binary_operation_data: BinaryOperationData,
 }
@@ -199,7 +209,7 @@ impl DivisionData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct ModuloData {
     binary_operation_data: BinaryOperationData,
 }
@@ -221,7 +231,7 @@ impl ModuloData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct MultiplicationData {
     binary_operation_data: BinaryOperationData,
 }
@@ -238,7 +248,7 @@ impl MultiplicationData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct PhiData {
     node_data: NodeData,
 }
@@ -268,13 +278,13 @@ impl PhiData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub enum ProjectionInformation {
     SideEffect,
     Result,
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct ProjectionData {
     node_data: NodeData,
     projection_info: ProjectionInformation,
@@ -302,7 +312,7 @@ impl ProjectionData {
 }
 
 pub const RETURN_RESULT_INDEX: usize = 0;
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct ReturnData {
     node_data: NodeData,
 }
@@ -315,7 +325,7 @@ impl ReturnData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct StartData {
     node_data: NodeData,
 }
@@ -328,7 +338,7 @@ impl StartData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct SubtractionData {
     binary_operation_data: BinaryOperationData,
 }
