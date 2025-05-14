@@ -53,7 +53,7 @@ impl CodeGenerator {
         let (registers, stack_offset) = register_allocator.allocate_registers(ir_graph);
         let mut code = String::new();
         code.push_str("pushq %rbp\n");
-        code.push_str("movq %rsp, %rbp\n");
+        code.push_str("mov %rsp, %rbp\n");
         code.push_str(&format!("subq ${}, %rsp\n", stack_offset));
         code.push_str(&self.generate_for_node(END_BLOCK, ir_graph, &registers, &mut visited));
         code
@@ -164,7 +164,7 @@ impl CodeGenerator {
         if !left_value.hardware_register() && !right_value.hardware_register() {
             code.push_str(&move_stack_variable(left_value));
         }
-        code.push_str("movq ");
+        code.push_str("mov ");
         if !left_value.hardware_register() && !right_value.hardware_register() {
             code.push_str(&HardwareRegister::Rbx.as_assembly());
         } else {
@@ -255,7 +255,7 @@ impl CodeGenerator {
             predecessor_skip_projection(node_index, RETURN_RESULT_INDEX, ir_graph);
 
         let mut code = String::new();
-        code.push_str("movq ");
+        code.push_str("mov ");
         code.push_str(
             &registers
                 .get(ir_graph.get_node(return_node_index))
@@ -280,7 +280,7 @@ impl CodeGenerator {
         let register = registers.get(ir_graph.get_node(node_index)).unwrap();
 
         let mut code = String::new();
-        code.push_str("movq ");
+        code.push_str("mov ");
         code.push_str(&(format!("$0x{:X}", &constant_data.value()).to_string()));
         code.push_str(", ");
         code.push_str(&register.as_assembly());
@@ -303,7 +303,7 @@ fn predecessor_skip_projection(node: usize, predecessor_index: usize, graph: &IR
 
 fn move_stack_variable(register: &Box<dyn Register>) -> String {
     let mut code = String::new();
-    code.push_str("movq ");
+    code.push_str("mov ");
     code.push_str(&register.as_assembly());
     code.push_str(", ");
     code.push_str(&HardwareRegister::Rbx.as_assembly());
