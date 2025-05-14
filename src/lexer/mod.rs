@@ -190,7 +190,9 @@ impl Lexer {
             {
                 offset += 1;
             }
-            let value = self.source.as_str()[self.position..self.position + offset].to_string();
+            let value = self.source.as_str()[self.position..self.position + offset]
+                .to_lowercase()
+                .to_string();
             if offset == 2 {
                 return Ok(Token::ErrorToken(self.build_span(2), value));
             }

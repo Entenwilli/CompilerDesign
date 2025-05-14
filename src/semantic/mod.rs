@@ -36,24 +36,27 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
     match *tree {
         Tree::Literal(value, base, _) => {
             if base == 16 {
-                if u32::from_str_radix(&value.as_str()[2..], 16).is_err() {
-                    return Err("Invalid integer literal! Too many bytes!".to_string());
+                if u32::from_str_radix(
+                    &value.as_str().replacen("0x", "", 1).replacen("-", "", 1),
+                    16,
+                )
+                .is_err()
+                {
+                    return Err(format!(
+                        "Invalid integer literal! Too many bytes! {:?}",
+                        u32::from_str_radix(
+                            &value.as_str().replacen("0x", "", 1).replacen("-", "", 1),
+                            16,
+                        )
+                    ));
                 }
-                let bytes = u32::from_str_radix(&value.as_str()[2..], 16)
-                    .unwrap()
-                    .to_be_bytes();
-                let parsed_value = i32::from_be_bytes(bytes);
-                dbg!(parsed_value);
             } else if base == 10 {
-                if u32::from_str_radix(value.as_str(), base as u32).is_err() {
-                    dbg!(&value, u32::from_str_radix(value.as_str(), base as u32));
-                    return Err("Invalid integer literal!".to_string());
+                if i32::from_str_radix(value.as_str(), base as u32).is_err() {
+                    return Err(format!(
+                        "Invalid integer literal! Too many bytes! {:?}",
+                        i32::from_str_radix(value.as_str(), base as u32)
+                    ));
                 }
-                let bytes = u32::from_str_radix(value.as_str(), 10)
-                    .unwrap()
-                    .to_be_bytes();
-                let parsed_value = i32::from_be_bytes(bytes);
-                dbg!(parsed_value);
             } else {
                 return Err("Invalid base!".to_string());
             }

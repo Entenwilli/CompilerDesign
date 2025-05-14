@@ -204,7 +204,17 @@ fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
             expression
         }
         Token::Operator(span, operator) if operator.eq(&OperatorType::Minus) => {
-            Ok(Box::new(Tree::Negate(parse_factor(tokens)?, span)))
+            match tokens.pop_front().unwrap() {
+                Token::NumberLiteral(span, value, base) => Ok(Box::new(Tree::Literal(
+                    "-".to_owned() + value.as_str(),
+                    base,
+                    span.clone(),
+                ))),
+                token => {
+                    tokens.push_front(token);
+                    Ok(Box::new(Tree::Negate(parse_factor(tokens)?, span)))
+                }
+            }
         }
         identifier @ Token::Identifier(_, _) => {
             Ok(Box::new(Tree::IdentifierExpression(name(identifier)?)))

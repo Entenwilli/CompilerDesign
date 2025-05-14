@@ -151,15 +151,15 @@ impl IRGraphConstructor {
             }
             Tree::Literal(constant, base, _) => {
                 let value: i32 = if base == 16 {
-                    let bytes = u32::from_str_radix(&constant.as_str()[2..], 16)
-                        .unwrap()
-                        .to_be_bytes();
+                    let bytes = u32::from_str_radix(
+                        &constant.as_str().replacen("0x", "", 1).replacen("-", "", 1),
+                        16,
+                    )
+                    .unwrap()
+                    .to_be_bytes();
                     i32::from_be_bytes(bytes)
                 } else if base == 10 {
-                    let bytes = u32::from_str_radix(constant.as_str(), base as u32)
-                        .unwrap()
-                        .to_be_bytes();
-                    i32::from_be_bytes(bytes)
+                    i32::from_str_radix(&constant, base as u32).unwrap()
                 } else {
                     return None;
                 };
