@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::{
     lexer::token::{OperatorType, Token},
     parser::{ast::Tree, symbols::Name},
+    util::int_parsing::parse_int,
 };
 
 use super::{
@@ -150,19 +151,7 @@ impl IRGraphConstructor {
                 }
             }
             Tree::Literal(constant, base, _) => {
-                let value: i32 = if base == 16 {
-                    let bytes = u32::from_str_radix(
-                        &constant.as_str().replacen("0x", "", 1).replacen("-", "", 1),
-                        16,
-                    )
-                    .unwrap()
-                    .to_be_bytes();
-                    i32::from_be_bytes(bytes)
-                } else if base == 10 {
-                    i32::from_str_radix(&constant, base as u32).unwrap()
-                } else {
-                    return None;
-                };
+                let value = parse_int(constant, base)?;
                 let node = self.create_constant_int(value);
                 Some(node)
             }
