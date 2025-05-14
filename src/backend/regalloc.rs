@@ -107,7 +107,7 @@ impl<'a> RegisterAllocator<'a> {
                 //HardwareRegister::Rax,
                 //HardwareRegister::Rbx,
                 HardwareRegister::Rcx,
-                HardwareRegister::Rdx,
+                //HardwareRegister::Rdx,
                 HardwareRegister::Rsi,
                 HardwareRegister::Rdi,
                 HardwareRegister::R8,
