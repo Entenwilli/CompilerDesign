@@ -1,13 +1,14 @@
-use core::panic;
 use std::collections::VecDeque;
 
 use ast::Tree;
+use error::ParseError;
 use symbols::Name;
 use types::Type;
 
 use crate::lexer::token::{KeywordType, OperatorType, SeperatorType, Token};
 
 pub mod ast;
+pub mod error;
 pub mod symbols;
 pub mod types;
 
@@ -17,33 +18,51 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: VecDeque<Token>) -> Parser {
-        println!();
-        println!("Parsing with tokens: {:?}", tokens);
-        println!();
         Parser { tokens }
     }
 
-    pub fn parse_program(self) -> Result<Tree, ()> {
-        Ok(Tree::Program(vec![parse_function(self.tokens)?]))
+    pub fn parse_program(mut self) -> Result<Tree, ParseError> {
+        let functions = vec![parse_function(&mut self.tokens)?];
+        if !self.tokens.is_empty() {
+            return Err(ParseError::Error(
+                "Tokens leftover after parsing!".to_string(),
+            ));
+        }
+        Ok(Tree::Program(functions))
     }
 }
 
-#[must_use]
-fn parse_function(mut tokens: VecDeque<Token>) -> Result<Tree, ()> {
-    let return_type = expect_keyword(&mut tokens, KeywordType::Int).expect("Missing int keyword!");
-    let identifier = expect_identifier(&mut tokens).unwrap();
-    expect_seperator(&mut tokens, SeperatorType::ParenOpen);
-    expect_seperator(&mut tokens, SeperatorType::ParenClose);
-    let body = parse_block(&mut tokens);
+fn parse_function(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let return_type = expect_keyword(tokens, KeywordType::Int)
+        .ok_or(ParseError::Error("Expected int".to_string()))?;
+    let identifier =
+        expect_identifier(tokens).ok_or(ParseError::Error("Expected identifier".to_string()))?;
+    if let Token::Identifier(_, name) = identifier.clone() {
+        if name != "main" {
+            return Err(ParseError::Error(format!(
+                "Expected main function, but got {}",
+                &name
+            )));
+        }
+    } else {
+        return Err(ParseError::Error(format!(
+            "Expected identifier, but got {:?}",
+            &identifier
+        )));
+    }
+    expect_seperator(tokens, SeperatorType::ParenOpen)
+        .ok_or(ParseError::Error("Expected ParenOpen".to_string()))?;
+    expect_seperator(tokens, SeperatorType::ParenClose)
+        .ok_or(ParseError::Error("Expected ParenClose".to_string()))?;
+    let body = parse_block(tokens)?;
     Ok(Tree::Function(
         Box::new(Tree::Type(Type::Int, return_type.span())),
         name(identifier)?,
-        body?,
+        body,
     ))
 }
 
-#[must_use]
-fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
+fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
     let body_open = expect_seperator(tokens, SeperatorType::BraceOpen).unwrap();
     let mut statements = vec![];
     while !tokens.is_empty() {
@@ -54,16 +73,15 @@ fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
             _ => statements.push(parse_statement(tokens)?),
         }
     }
-    let body_close =
-        expect_seperator(tokens, SeperatorType::BraceClose).expect("Expected closing brace!");
+    let body_close = expect_seperator(tokens, SeperatorType::BraceClose)
+        .ok_or(ParseError::Error("Expected BraceClose".to_string()))?;
     Ok(Box::new(Tree::Block(
         statements,
         body_open.span().merge(body_close.span()),
     )))
 }
 
-#[must_use]
-fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
+fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let statement = if tokens.front().unwrap().is_keyword(&KeywordType::Int) {
         parse_decleration(tokens)?
     } else if tokens.front().unwrap().is_keyword(&KeywordType::Return) {
@@ -71,14 +89,16 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
     } else {
         parse_simple(tokens)?
     };
-    expect_seperator(tokens, SeperatorType::Semicolon);
+    expect_seperator(tokens, SeperatorType::Semicolon)
+        .ok_or(ParseError::Error("Expecting Semicolon!".to_string()))?;
     Ok(statement)
 }
 
-#[must_use]
-fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
-    let type_token = expect_keyword(tokens, KeywordType::Int).unwrap();
-    let identifier = expect_identifier(tokens).unwrap();
+fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let type_token = expect_keyword(tokens, KeywordType::Int)
+        .ok_or(ParseError::Error("Expected keyword".to_string()))?;
+    let identifier =
+        expect_identifier(tokens).ok_or(ParseError::Error("Expected identifier".to_string()))?;
     let mut expression = None;
     if tokens.front().unwrap().is_operator(&OperatorType::Assign) {
         expect_operator(tokens, OperatorType::Assign);
@@ -91,8 +111,9 @@ fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
     ))
 }
 
-fn parse_return(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
-    let return_keyword = expect_keyword(tokens, KeywordType::Return).ok_or(())?;
+fn parse_return(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let return_keyword = expect_keyword(tokens, KeywordType::Return)
+        .ok_or(ParseError::Error("Expected keyword".to_string()))?;
     let expression = parse_expression(tokens)?;
     Ok(Tree::Return(
         expression,
@@ -100,79 +121,118 @@ fn parse_return(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
     ))
 }
 
-fn parse_simple(tokens: &mut VecDeque<Token>) -> Result<Tree, ()> {
+fn parse_simple(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let lvalue = parse_lvalue(tokens)?;
     let assignment_operator = parse_assignment_operator(tokens)?;
     let expression = parse_expression(tokens)?;
     Ok(Tree::Assignment(lvalue, assignment_operator, expression))
 }
 
-fn parse_assignment_operator(tokens: &mut VecDeque<Token>) -> Result<Token, ()> {
+fn parse_assignment_operator(tokens: &mut VecDeque<Token>) -> Result<Token, ParseError> {
     if tokens.front().unwrap().is_assignment_operator() {
-        consume(tokens);
-        return tokens.pop_front().ok_or(());
+        return tokens.pop_front().ok_or(ParseError::Finished);
     }
-    panic!();
+    Err(ParseError::Error(
+        "Expected assignment operator".to_string(),
+    ))
 }
 
-#[must_use]
-fn parse_lvalue(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
+fn parse_lvalue(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
     if tokens
         .front()
         .unwrap()
         .is_separator(&SeperatorType::ParenOpen)
     {
-        expect_seperator(tokens, SeperatorType::ParenOpen);
-        let inner = parse_lvalue(tokens);
-        expect_seperator(tokens, SeperatorType::ParenClose);
-        return inner;
+        expect_seperator(tokens, SeperatorType::ParenOpen)
+            .ok_or(ParseError::Error("Expected ParenOpen".to_string()))?;
+        let inner = parse_lvalue(tokens)?;
+        expect_seperator(tokens, SeperatorType::ParenClose)
+            .ok_or(ParseError::Error("Expected ParenClose".to_string()))?;
+        return Ok(inner);
     }
-    let identifier = expect_identifier(tokens).ok_or(())?;
+    let identifier =
+        expect_identifier(tokens).ok_or(ParseError::Error("Expected identifier!".to_string()))?;
     Ok(Box::new(Tree::LValueIdentifier(name(identifier)?)))
 }
 
-#[must_use]
-fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
-    let mut lhs = parse_factor(tokens)?;
+fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
+    let mut lhs = parse_term(tokens)?;
     loop {
         match tokens.pop_front().unwrap() {
             Token::Operator(_, operator)
-                if operator.eq(&OperatorType::Mul)
-                    || operator.eq(&OperatorType::Div)
-                    || operator.eq(&OperatorType::Mod) =>
+                if operator.eq(&OperatorType::Plus) || operator.eq(&OperatorType::Minus) =>
             {
-                lhs = Box::new(Tree::BinaryOperation(lhs, parse_factor(tokens)?, operator));
+                lhs = Box::new(Tree::BinaryOperation(lhs, parse_term(tokens)?, operator));
             }
-            _ => return Ok(lhs),
+            token => {
+                tokens.push_front(token);
+                return Ok(lhs);
+            }
         }
     }
 }
 
-#[must_use]
-fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ()> {
+fn parse_term(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
+    let mut lhs = parse_factor(tokens)?;
+    loop {
+        match tokens.pop_front().unwrap() {
+            Token::Operator(_, operator_type)
+                if matches!(
+                    operator_type,
+                    OperatorType::Mul | OperatorType::Div | OperatorType::Mod
+                ) =>
+            {
+                lhs = Box::new(Tree::BinaryOperation(
+                    lhs,
+                    parse_factor(tokens)?,
+                    operator_type,
+                ));
+            }
+            token => {
+                tokens.push_front(token);
+                return Ok(lhs);
+            }
+        }
+    }
+}
+
+fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
     match tokens.pop_front().unwrap() {
         Token::Separator(_, seperator) if seperator.eq(&SeperatorType::ParenOpen) => {
             let expression = parse_expression(tokens);
-            expect_seperator(tokens, SeperatorType::ParenClose);
+            expect_seperator(tokens, SeperatorType::ParenClose)
+                .ok_or(ParseError::Error("Expecting ParenClose".to_string()))?;
             expression
         }
         Token::Operator(span, operator) if operator.eq(&OperatorType::Minus) => {
-            Ok(Box::new(Tree::Negate(parse_factor(tokens)?, span)))
+            match tokens.pop_front().unwrap() {
+                Token::NumberLiteral(span, value, base) => Ok(Box::new(Tree::Literal(
+                    "-".to_owned() + value.as_str(),
+                    base,
+                    span.clone(),
+                ))),
+                token => {
+                    tokens.push_front(token);
+                    Ok(Box::new(Tree::Negate(parse_factor(tokens)?, span)))
+                }
+            }
         }
         identifier @ Token::Identifier(_, _) => {
             Ok(Box::new(Tree::IdentifierExpression(name(identifier)?)))
         }
         Token::NumberLiteral(span, value, base) => Ok(Box::new(Tree::Literal(value, base, span))),
-        _ => Err(()),
+        token => Err(ParseError::Error(format!(
+            "Expected ParenOpen, Minus, Identifier or Number Literal, but got {:?}",
+            token
+        ))),
     }
 }
 
-#[must_use]
-fn name(identifier: Token) -> Result<Box<Tree>, ()> {
+fn name(identifier: Token) -> Result<Box<Tree>, ParseError> {
     if let Token::Identifier(span, value) = identifier {
         return Ok(Box::new(Tree::Name(Name::IdentifierName(value), span)));
     }
-    Err(())
+    Err(ParseError::Error("Expected identifier as name".to_string()))
 }
 
 fn expect_keyword(tokens: &mut VecDeque<Token>, keyword: KeywordType) -> Option<Token> {
@@ -223,6 +283,6 @@ fn expect_identifier(tokens: &mut VecDeque<Token>) -> Option<Token> {
     None
 }
 
-fn consume(tokens: &mut VecDeque<Token>) -> Option<Token> {
+fn _consume(tokens: &mut VecDeque<Token>) -> Option<Token> {
     tokens.pop_front()
 }
