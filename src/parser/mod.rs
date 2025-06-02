@@ -5,7 +5,7 @@ use error::ParseError;
 use symbols::Name;
 use types::Type;
 
-use crate::lexer::token::{KeywordType, OperatorType, SeperatorType, Token};
+use crate::lexer::token::{KeywordType, OperatorType, SeperatorType, Token, MAX_PRECEDENCE};
 
 pub mod ast;
 pub mod error;
@@ -58,11 +58,11 @@ fn parse_function(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     Ok(Tree::Function(
         Box::new(Tree::Type(Type::Int, return_type.span())),
         name(identifier)?,
-        body,
+        Box::new(body),
     ))
 }
 
-fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
+fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let body_open = expect_seperator(tokens, SeperatorType::BraceOpen).unwrap();
     let mut statements = vec![];
     while !tokens.is_empty() {
@@ -75,23 +75,49 @@ fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
     }
     let body_close = expect_seperator(tokens, SeperatorType::BraceClose)
         .ok_or(ParseError::Error("Expected BraceClose".to_string()))?;
-    Ok(Box::new(Tree::Block(
+    Ok(Tree::Block(
         statements,
         body_open.span().merge(body_close.span()),
-    )))
+    ))
 }
 
 fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
-    let statement = if tokens.front().unwrap().is_keyword(&KeywordType::Int) {
-        parse_decleration(tokens)?
-    } else if tokens.front().unwrap().is_keyword(&KeywordType::Return) {
-        parse_return(tokens)?
+    let statement = if tokens
+        .front()
+        .unwrap()
+        .is_separator(&SeperatorType::ParenOpen)
+    {
+        parse_block(tokens)?
+    } else if tokens.front().unwrap().is_control_keyword() {
+        parse_control(tokens)?
     } else {
-        parse_simple(tokens)?
+        let simple = parse_simple(tokens)?;
+        expect_seperator(tokens, SeperatorType::Semicolon)
+            .ok_or(ParseError::Error("Expecting Semicolon!".to_string()))?;
+        simple
     };
-    expect_seperator(tokens, SeperatorType::Semicolon)
-        .ok_or(ParseError::Error("Expecting Semicolon!".to_string()))?;
     Ok(statement)
+}
+
+fn parse_control(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let keyword = tokens.front().unwrap();
+    let expression = if keyword.is_keyword(&KeywordType::Return) {
+        parse_return(tokens)
+    } else if keyword.is_keyword(&KeywordType::Break) {
+        parse_break(tokens)
+    } else if keyword.is_keyword(&KeywordType::Continue) {
+        parse_continue(tokens)
+    } else if keyword.is_keyword(&KeywordType::For) {
+        parse_for(tokens)
+    } else if keyword.is_keyword(&KeywordType::While) {
+        parse_while(tokens)
+    } else if keyword.is_keyword(&KeywordType::If) {
+        parse_if(tokens)
+    } else {
+        Err(ParseError::Error("Expected control keyword".to_string()))
+    };
+    expect_seperator(tokens, SeperatorType::Semicolon);
+    expression
 }
 
 fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
@@ -100,7 +126,11 @@ fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let identifier =
         expect_identifier(tokens).ok_or(ParseError::Error("Expected identifier".to_string()))?;
     let mut expression = None;
-    if tokens.front().unwrap().is_operator(&OperatorType::Assign) {
+    if tokens
+        .front()
+        .unwrap()
+        .is_operator_type(&OperatorType::Assign)
+    {
         expect_operator(tokens, OperatorType::Assign);
         expression = Some(parse_expression(tokens)?);
     }
@@ -121,11 +151,82 @@ fn parse_return(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     ))
 }
 
-fn parse_simple(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
-    let lvalue = parse_lvalue(tokens)?;
-    let assignment_operator = parse_assignment_operator(tokens)?;
+fn parse_break(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let break_keyword = expect_keyword(tokens, KeywordType::Break)
+        .ok_or(ParseError::Error("Expected keyword".to_string()))?;
+    Ok(Tree::Break(break_keyword.span()))
+}
+
+fn parse_continue(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let continue_keyword = expect_keyword(tokens, KeywordType::Continue)
+        .ok_or(ParseError::Error("Expected keyword".to_string()))?;
+    Ok(Tree::Continue(continue_keyword.span()))
+}
+
+fn parse_for(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let keyword = expect_keyword(tokens, KeywordType::For)
+        .ok_or(ParseError::Error("Expected keyword IF".to_string()))?;
+    expect_seperator(tokens, SeperatorType::ParenOpen);
+    let initializer = parse_simple(tokens).ok();
+    expect_seperator(tokens, SeperatorType::Semicolon);
     let expression = parse_expression(tokens)?;
-    Ok(Tree::Assignment(lvalue, assignment_operator, expression))
+    expect_seperator(tokens, SeperatorType::Semicolon);
+    let updating_expression = parse_simple(tokens).ok();
+    expect_seperator(tokens, SeperatorType::ParenClose);
+    let statement = parse_statement(tokens)?;
+    let span = keyword.span().merge(statement.span());
+    Ok(Tree::For(
+        initializer.map(|v| Box::new(v)),
+        expression,
+        updating_expression.map(|v| Box::new(v)),
+        Box::new(statement),
+        span,
+    ))
+}
+
+fn parse_while(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let keyword = expect_keyword(tokens, KeywordType::While)
+        .ok_or(ParseError::Error("Expected keyword WHILE".to_string()))?;
+    expect_seperator(tokens, SeperatorType::ParenOpen);
+    let expression = parse_expression(tokens)?;
+    expect_seperator(tokens, SeperatorType::ParenClose);
+    let statement = parse_statement(tokens)?;
+    let span = keyword.span().merge(statement.span());
+    Ok(Tree::While(expression, Box::new(statement), span))
+}
+
+fn parse_if(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    let keyword = expect_keyword(tokens, KeywordType::If)
+        .ok_or(ParseError::Error("Expected keyword IF".to_string()))?;
+    expect_seperator(tokens, SeperatorType::ParenOpen);
+    let expression = parse_expression(tokens)?;
+    expect_seperator(tokens, SeperatorType::ParenClose);
+    let statement = parse_statement(tokens)?;
+    if tokens.front().unwrap().is_keyword(&KeywordType::Else) {
+        consume(tokens);
+        let else_statement = parse_statement(tokens)?;
+        let span = keyword.span().merge(else_statement.span());
+        Ok(Tree::If(
+            expression,
+            Box::new(statement),
+            Some(Box::new(else_statement)),
+            span,
+        ))
+    } else {
+        let span = keyword.span().merge(statement.span());
+        Ok(Tree::If(expression, Box::new(statement), None, span))
+    }
+}
+
+fn parse_simple(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    if tokens.front().unwrap().is_type_keyword() {
+        parse_decleration(tokens)
+    } else {
+        let lvalue = parse_lvalue(tokens)?;
+        let assignment_operator = parse_assignment_operator(tokens)?;
+        let expression = parse_expression(tokens)?;
+        Ok(Tree::Assignment(lvalue, assignment_operator, expression))
+    }
 }
 
 fn parse_assignment_operator(tokens: &mut VecDeque<Token>) -> Result<Token, ParseError> {
@@ -150,53 +251,89 @@ fn parse_lvalue(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
             .ok_or(ParseError::Error("Expected ParenClose".to_string()))?;
         return Ok(inner);
     }
-    let identifier =
-        expect_identifier(tokens).ok_or(ParseError::Error("Expected identifier!".to_string()))?;
+    let identifier = expect_identifier(tokens).ok_or(ParseError::Error(format!(
+        "Expected identifier, but got {:?}!",
+        tokens.front().unwrap()
+    )))?;
     Ok(Box::new(Tree::LValueIdentifier(name(identifier)?)))
 }
 
 fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
-    let mut lhs = parse_term(tokens)?;
+    let lhs = parse_precedence_expression(tokens, MAX_PRECEDENCE)?;
+    println!("DBG: {:?}", tokens.front().unwrap());
+    if !tokens.front().unwrap().is_operator() {
+        return Ok(lhs);
+    }
+    if let Token::Operator(_, operator) = tokens.front().unwrap() {
+        if !operator.eq(&OperatorType::TernaryQuestionMark) {
+            return Ok(lhs);
+        }
+    }
+    consume(tokens);
+    let true_expression = parse_expression(tokens)?;
+    expect_operator(tokens, OperatorType::TernaryColon);
+    let false_expression = parse_expression(tokens)?;
+    Ok(Box::new(Tree::TernaryOperation(
+        lhs,
+        true_expression,
+        false_expression,
+    )))
+}
+
+fn parse_precedence_expression(
+    tokens: &mut VecDeque<Token>,
+    predecence: u8,
+) -> Result<Box<Tree>, ParseError> {
+    if predecence == 1 {
+        return parse_unary_expression(tokens, predecence);
+    } else if predecence == 0 {
+        return parse_basic_expression(tokens);
+    }
+
+    let mut lhs = parse_precedence_expression(tokens, predecence - 1)?;
     loop {
-        match tokens.pop_front().unwrap() {
-            Token::Operator(_, operator)
-                if operator.eq(&OperatorType::Plus) || operator.eq(&OperatorType::Minus) =>
+        let next_operator = tokens.pop_front().unwrap();
+        if let Token::Operator(_, ref operator) = next_operator {
+            if matches!(
+                operator,
+                OperatorType::TernaryColon | OperatorType::TernaryQuestionMark
+            ) || operator.is_assignment_operator()
             {
-                lhs = Box::new(Tree::BinaryOperation(lhs, parse_term(tokens)?, operator));
-            }
-            token => {
-                tokens.push_front(token);
+                tokens.push_front(next_operator);
                 return Ok(lhs);
             }
+            if operator.get_precedence().contains(&predecence) {
+                let rhs = parse_precedence_expression(tokens, predecence - 1)?;
+                lhs = Box::new(Tree::BinaryOperation(lhs, rhs, operator.clone()));
+                continue;
+            }
         }
+        tokens.push_front(next_operator);
+        return Ok(lhs);
     }
 }
 
-fn parse_term(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
-    let mut lhs = parse_factor(tokens)?;
-    loop {
-        match tokens.pop_front().unwrap() {
-            Token::Operator(_, operator_type)
-                if matches!(
-                    operator_type,
-                    OperatorType::Mul | OperatorType::Div | OperatorType::Mod
-                ) =>
-            {
-                lhs = Box::new(Tree::BinaryOperation(
-                    lhs,
-                    parse_factor(tokens)?,
-                    operator_type,
-                ));
-            }
-            token => {
-                tokens.push_front(token);
-                return Ok(lhs);
-            }
+fn parse_unary_expression(
+    tokens: &mut VecDeque<Token>,
+    predecence: u8,
+) -> Result<Box<Tree>, ParseError> {
+    let token = tokens.pop_front().unwrap();
+    if let Token::Operator(_, ref operator_type) = token {
+        if operator_type.get_precedence().contains(&predecence) {
+            let value = parse_precedence_expression(tokens, predecence)?;
+            let span = token.clone().span().merge(value.span());
+            return Ok(Box::new(Tree::UnaryOperation(
+                value,
+                operator_type.clone(),
+                span,
+            )));
         }
     }
+    tokens.push_front(token);
+    parse_precedence_expression(tokens, predecence - 1)
 }
 
-fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
+fn parse_basic_expression(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
     match tokens.pop_front().unwrap() {
         Token::Separator(_, seperator) if seperator.eq(&SeperatorType::ParenOpen) => {
             let expression = parse_expression(tokens);
@@ -204,6 +341,7 @@ fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
                 .ok_or(ParseError::Error("Expecting ParenClose".to_string()))?;
             expression
         }
+        // FIXME: Janky negative hack, because I wanted nothing to do with int parsing
         Token::Operator(span, operator) if operator.eq(&OperatorType::Minus) => {
             match tokens.pop_front().unwrap() {
                 Token::NumberLiteral(span, value, base) => Ok(Box::new(Tree::Literal(
@@ -213,7 +351,11 @@ fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
                 ))),
                 token => {
                     tokens.push_front(token);
-                    Ok(Box::new(Tree::Negate(parse_factor(tokens)?, span)))
+                    Ok(Box::new(Tree::UnaryOperation(
+                        parse_expression(tokens)?,
+                        OperatorType::Minus,
+                        span,
+                    )))
                 }
             }
         }
@@ -221,6 +363,12 @@ fn parse_factor(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
             Ok(Box::new(Tree::IdentifierExpression(name(identifier)?)))
         }
         Token::NumberLiteral(span, value, base) => Ok(Box::new(Tree::Literal(value, base, span))),
+        Token::Keyword(span, keyword) if keyword.eq(&KeywordType::True) => {
+            Ok(Box::new(Tree::BoolLiteral(true, span)))
+        }
+        Token::Keyword(span, keyword) if keyword.eq(&KeywordType::False) => {
+            Ok(Box::new(Tree::BoolLiteral(false, span)))
+        }
         token => Err(ParseError::Error(format!(
             "Expected ParenOpen, Minus, Identifier or Number Literal, but got {:?}",
             token
@@ -283,6 +431,6 @@ fn expect_identifier(tokens: &mut VecDeque<Token>) -> Option<Token> {
     None
 }
 
-fn _consume(tokens: &mut VecDeque<Token>) -> Option<Token> {
+fn consume(tokens: &mut VecDeque<Token>) -> Option<Token> {
     tokens.pop_front()
 }

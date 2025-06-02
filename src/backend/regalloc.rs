@@ -7,7 +7,6 @@ use crate::ir::{
     graph::{IRGraph, END_BLOCK},
     node::Node,
 };
-
 pub trait Register {
     fn as_assembly(&self) -> String;
     fn as_32_bit_assembly(&self) -> String;

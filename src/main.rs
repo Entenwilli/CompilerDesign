@@ -20,6 +20,7 @@ pub mod semantic;
 pub mod util;
 
 fn main() {
+    tracing_subscriber::fmt::init();
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
         println!("Error: Invalid arguments");
@@ -60,6 +61,10 @@ fn main() {
     let code_generator = CodeGenerator::new(ir_graphs);
     fs::write(temp.clone(), code_generator.generate())
         .expect("Filesystem: Failed to write assembler output");
+    println!(
+        "Filesystem: Wrote assembler to {}",
+        temp.clone().to_string()
+    );
     let gcc = Command::new("gcc")
         .arg(temp)
         .arg("-o")

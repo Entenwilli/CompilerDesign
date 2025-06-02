@@ -135,6 +135,9 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::Name(_, _) => Ok(()),
+        Tree::BoolLiteral(_, _) => Ok(()),
+        Tree::Continue(_) => Ok(()),
+        Tree::Break(_) => Ok(()),
         Tree::BinaryOperation(lhs, rhs, _) => {
             analyze(lhs, state)?;
             analyze(rhs, state)
@@ -146,13 +149,40 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::LValueIdentifier(name) => analyze(name, state),
-        Tree::Negate(expression, _) => analyze(expression, state),
+        Tree::UnaryOperation(expression, _, _) => analyze(expression, state),
         Tree::Type(_, _) => Ok(()),
         Tree::Program(statements) => {
             for statement in statements {
                 analyze(Box::new(statement), state)?;
             }
             Ok(())
+        }
+        Tree::TernaryOperation(statement, true_statement, false_statement) => {
+            analyze(statement, state)?;
+            analyze(true_statement, state)?;
+            analyze(false_statement, state)
+        }
+        Tree::If(condition, expression, else_expression, _) => {
+            analyze(condition, state)?;
+            analyze(expression, state)?;
+            if let Some(other_expression) = else_expression {
+                analyze(other_expression, state)?;
+            }
+            Ok(())
+        }
+        Tree::While(condition, expression, _) => {
+            analyze(condition, state)?;
+            analyze(expression, state)
+        }
+        Tree::For(initializer, condition, updater, expression, _) => {
+            if let Some(initializer_expression) = initializer {
+                analyze(initializer_expression, state)?;
+            }
+            analyze(condition, state)?;
+            if let Some(updater_expression) = updater {
+                analyze(updater_expression, state)?;
+            }
+            analyze(expression, state)
         }
     }
 }

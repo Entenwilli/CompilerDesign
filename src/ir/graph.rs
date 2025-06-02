@@ -37,7 +37,7 @@ impl IRGraph {
         self.nodes.get(&index).expect("Cannot find node at index")
     }
 
-    pub fn get_node_mut(&mut self, index: usize) -> &Node {
+    pub fn get_node_mut(&mut self, index: usize) -> &mut Node {
         self.nodes
             .get_mut(&index)
             .expect("Cannot find node at index")
@@ -74,7 +74,13 @@ impl Display for IRGraph {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "START: {}", self.get_node(START_BLOCK))?;
         for i in END_BLOCK + 1..self.next_node_index {
-            writeln!(f, "{}: {}", i, self.get_node(i))?
+            writeln!(
+                f,
+                "{}-{}: {}",
+                self.get_node(i).block(),
+                i,
+                self.get_node(i)
+            )?
         }
         writeln!(f, "END: {}", self.get_node(END_BLOCK))?;
         Ok(())

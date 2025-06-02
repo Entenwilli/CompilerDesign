@@ -18,9 +18,22 @@ pub enum Tree {
     IdentifierExpression(Box<Tree>),
     LValueIdentifier(Box<Tree>),
     Literal(String, u64, Span),
+    BoolLiteral(bool, Span),
+    TernaryOperation(Box<Tree>, Box<Tree>, Box<Tree>),
     Name(Name, Span),
-    Negate(Box<Tree>, Span),
+    UnaryOperation(Box<Tree>, OperatorType, Span),
     Return(Box<Tree>, Position),
+    Break(Span),
+    Continue(Span),
+    For(
+        Option<Box<Tree>>,
+        Box<Tree>,
+        Option<Box<Tree>>,
+        Box<Tree>,
+        Span,
+    ),
+    While(Box<Tree>, Box<Tree>, Span),
+    If(Box<Tree>, Box<Tree>, Option<Box<Tree>>, Span),
     Type(Type, Span),
     Program(Vec<Tree>),
 }
@@ -44,7 +57,7 @@ impl Tree {
             Tree::LValueIdentifier(name) => name.span(),
             Tree::Literal(_, _, span) => span.clone(),
             Tree::Name(_, span) => span.clone(),
-            Tree::Negate(expression, span) => span.clone().merge(expression.span()),
+            Tree::UnaryOperation(expression, _, span) => span.clone().merge(expression.span()),
             Tree::Return(expression, start) => {
                 Span::new(start.clone(), expression.span().end_owned())
             }
@@ -54,6 +67,13 @@ impl Tree {
                 let last = trees.last().unwrap();
                 return Span::new(first.span().start().clone(), last.span().end().clone());
             }
+            Tree::BoolLiteral(_, span) => span.clone(),
+            Tree::TernaryOperation(start, _, end) => start.span().merge(end.span()),
+            Tree::Break(span) => span.clone(),
+            Tree::Continue(span) => span.clone(),
+            Tree::For(_, _, _, _, span) => span.clone(),
+            Tree::While(_, _, span) => span.clone(),
+            Tree::If(_, _, _, span) => span.clone(),
         }
     }
 
@@ -117,14 +137,51 @@ impl Display for Tree {
             Tree::Literal(value, _, _) => {
                 write!(f, "{}", value)
             }
-            Tree::Negate(tree, _) => {
-                write!(f, "!{}", tree)
+            Tree::UnaryOperation(tree, operator, _) => {
+                write!(f, "{}{}", operator.as_str(), tree)
             }
             Tree::Return(expresion, _) => {
-                write!(f, "return {}", expresion)
+                writeln!(f, "return {}", expresion)
             }
             Tree::Type(type_tree, _) => {
                 write!(f, "{}", type_tree.as_string())
+            }
+            Tree::BoolLiteral(value, _) => {
+                write!(f, "{}", value.to_string())
+            }
+            Tree::TernaryOperation(expression, true_expression, false_expression) => {
+                write!(
+                    f,
+                    "{} ? {} : {}",
+                    expression, true_expression, false_expression
+                )
+            }
+            Tree::Continue(_) => {
+                writeln!(f, "continue")
+            }
+            Tree::Break(_) => {
+                writeln!(f, "break")
+            }
+            Tree::For(init, condition, post, statement, _) => {
+                writeln!(f, "for {:?}; {}; {:?} {{", init, condition, post)?;
+                writeln!(f, "{}", statement)?;
+                writeln!(f, "}}")
+            }
+            Tree::While(condition, statement, _) => {
+                writeln!(f, "while {} {{", condition)?;
+                writeln!(f, "{}", statement)?;
+                writeln!(f, "}}")
+            }
+            Tree::If(condition, statement, else_statement, _) => {
+                writeln!(f, "if {} {{", condition)?;
+                writeln!(f, "{}", statement)?;
+                if let Some(other_statement) = else_statement {
+                    writeln!(f, "}} else {{")?;
+                    writeln!(f, "{}", other_statement)?;
+                    writeln!(f, "}}")
+                } else {
+                    writeln!(f, "}}")
+                }
             }
         }
     }

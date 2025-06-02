@@ -1,7 +1,10 @@
 use core::panic;
 use std::collections::HashMap;
 
+use tracing::{debug, event, Level};
+
 use crate::{
+    ir::{graph, node::JumpData},
     lexer::token::{OperatorType, Token},
     parser::{ast::Tree, symbols::Name},
     util::int_parsing::parse_int,
@@ -10,8 +13,11 @@ use crate::{
 use super::{
     graph::{IRGraph, START_BLOCK},
     node::{
-        AddData, ConstantIntData, DivisionData, ModuloData, MultiplicationData, Node, PhiData,
-        ProjectionData, ProjectionInformation, ReturnData, StartData, SubtractionData,
+        AddData, AndData, BitwiseNegateData, BlockData, ConditionalJumpData, ConstantBoolData,
+        ConstantIntData, DivisionData, EqualsData, HigherData, HigherEqualsData, LowerData,
+        LowerEqualsData, ModuloData, MultiplicationData, Node, NodeData, NotEqualsData, OrData,
+        PhiData, ProjectionData, ProjectionInformation, ReturnData, ShiftLeftData, ShiftRightData,
+        StartData, SubtractionData, XorData,
     },
     optimizer::Optimizer,
 };
@@ -24,7 +30,10 @@ pub struct IRGraphConstructor {
     current_side_effect: HashMap<usize, usize>,
     incomplete_side_effect_phis: HashMap<usize, usize>,
     sealed_blocks: Vec<usize>,
+    loop_starts: Vec<usize>,
+    loop_ends: Vec<usize>,
     current_block: usize,
+    next_block_number: usize,
 }
 
 impl IRGraphConstructor {
@@ -38,11 +47,15 @@ impl IRGraphConstructor {
             incomplete_side_effect_phis: HashMap::new(),
             // Start Block never gets more predecessors
             sealed_blocks: vec![0],
+            loop_starts: Vec::new(),
+            loop_ends: Vec::new(),
             current_block: 0,
+            next_block_number: 2,
         }
     }
 
     pub fn convert(&mut self, tree: Tree) -> Option<usize> {
+        debug!("Converting AST {} to IR!", tree);
         match tree {
             Tree::Program(functions) => {
                 for function in functions {
@@ -117,7 +130,39 @@ impl IRGraphConstructor {
                         let mod_node = self.create_mod(lhs_node, rhs_node);
                         self.create_div_mod_projection(mod_node)
                     }
-                    _ => panic!("Not a binary operator"),
+                    OperatorType::ShiftLeft => self.create_shift_left(lhs_node, rhs_node),
+                    OperatorType::ShiftRight => self.create_shift_right(lhs_node, rhs_node),
+                    OperatorType::Lower => self.create_lower(lhs_node, rhs_node),
+                    OperatorType::LowerEquals => self.create_lower_equals(lhs_node, rhs_node),
+                    OperatorType::Equals => self.create_equals(lhs_node, rhs_node),
+                    OperatorType::NotEquals => self.create_not_equals(lhs_node, rhs_node),
+                    OperatorType::HigherEquals => self.create_higher_equals(lhs_node, rhs_node),
+                    OperatorType::Higher => self.create_higher(lhs_node, rhs_node),
+                    OperatorType::BitwiseOr => self.create_or(lhs_node, rhs_node),
+                    OperatorType::BitwiseAnd => self.create_and(lhs_node, rhs_node),
+                    OperatorType::BitwiseXor => self.create_xor(lhs_node, rhs_node),
+                    OperatorType::LogicalAnd => self.create_and(lhs_node, rhs_node),
+                    OperatorType::LogicalOr => self.create_or(lhs_node, rhs_node),
+                    OperatorType::Assign
+                    | OperatorType::AssignMul
+                    | OperatorType::AssignDiv
+                    | OperatorType::AssignMod
+                    | OperatorType::AssignPlus
+                    | OperatorType::AssignMinus
+                    | OperatorType::AssignShiftLeft
+                    | OperatorType::AssignShiftRight
+                    | OperatorType::AssignBitwiseOr
+                    | OperatorType::AssignBitwiseNot
+                    | OperatorType::AssignBitwiseAnd
+                    | OperatorType::AssignBitwiseXor => {
+                        panic!("Expected binary operator, got assignment operator!")
+                    }
+                    OperatorType::LogicalNot | OperatorType::BitwiseNot => {
+                        panic!("Expected binary operator, got unary operator!")
+                    }
+                    OperatorType::TernaryQuestionMark | OperatorType::TernaryColon => {
+                        panic!("Expected binary operator, got ternary operator!")
+                    }
                 };
                 Some(result)
             }
@@ -157,12 +202,25 @@ impl IRGraphConstructor {
             }
             Tree::LValueIdentifier(_) => None,
             Tree::Name(_, _) => None,
-            Tree::Negate(expression, _) => {
-                let node = self.convert_boxed(expression).unwrap();
-                let zero = self.create_constant_int(0);
-                let result = self.create_sub(zero, node);
-                Some(result)
-            }
+            Tree::UnaryOperation(expression, operator_type, _) => match operator_type {
+                OperatorType::Minus => {
+                    let node = self.convert_boxed(expression)?;
+                    let zero = self.create_constant_int(0);
+                    let result = self.create_sub(zero, node);
+                    Some(result)
+                }
+                OperatorType::BitwiseNot => {
+                    let node = self.convert_boxed(expression)?;
+                    let result = self.create_bitwise_not(node);
+                    Some(result)
+                }
+                OperatorType::LogicalNot => {
+                    let node = self.convert_boxed(expression)?;
+                    let result = self.create_bitwise_not(node);
+                    Some(result)
+                }
+                _ => panic!("Unregistered Unary Operation {:?}", operator_type),
+            },
             Tree::Return(expression, _) => {
                 let node = self.convert_boxed(expression).unwrap();
                 let return_node = self.create_return(node);
@@ -173,6 +231,165 @@ impl IRGraphConstructor {
                 None
             }
             Tree::Type(_, _) => None,
+            Tree::BoolLiteral(boolean, _) => {
+                let node = if boolean {
+                    self.create_constant_bool(true)
+                } else {
+                    self.create_constant_bool(false)
+                };
+                Some(node)
+            }
+            Tree::Break(_) => {
+                // Jump to after loop
+                todo!("Create unconditional jump with correct target");
+            }
+            Tree::Continue(_) => {
+                // Jump to post condition of loop
+                todo!("Create unconditional jump with correct target");
+            }
+            Tree::TernaryOperation(expression, true_value, false_value) => {
+                debug!("Generating IR for TernaryOperation");
+                let condition_node = self.convert_boxed(expression)?;
+                let conditional_jump = self.create_conditional_jump(condition_node);
+
+                let true_projection = self.create_true_projection(conditional_jump);
+                let false_projection = self.create_false_projection(conditional_jump);
+
+                let false_block = self.create_block("ternary-false".to_string());
+                self.graph
+                    .get_node_mut(false_block)
+                    .predecessors_mut()
+                    .push(false_projection);
+
+                let true_block = self.create_block("ternary-true".to_string());
+                self.graph
+                    .get_node_mut(true_block)
+                    .predecessors_mut()
+                    .push(true_projection);
+                self.seal_block(self.current_block);
+
+                self.current_block = self.graph.get_node(false_block).block();
+                let false_expression = self.convert_boxed(false_value)?;
+                self.graph
+                    .get_node_mut(false_expression)
+                    .predecessors_mut()
+                    .push(false_block);
+                let false_jump = self.create_jump();
+                self.graph
+                    .get_node_mut(false_jump)
+                    .predecessors_mut()
+                    .push(false_expression);
+
+                self.current_block = self.graph.get_node(true_block).block();
+                let true_expression = self.convert_boxed(true_value)?;
+                self.graph
+                    .get_node_mut(true_expression)
+                    .predecessors_mut()
+                    .push(true_block);
+                let true_jump = self.create_jump();
+                self.graph
+                    .get_node_mut(true_jump)
+                    .predecessors_mut()
+                    .push(true_expression);
+
+                let following_block = self.create_block("ternary-following".to_string());
+                self.graph
+                    .get_node_mut(following_block)
+                    .predecessors_mut()
+                    .push(true_jump);
+                self.graph
+                    .get_node_mut(following_block)
+                    .predecessors_mut()
+                    .push(false_jump);
+                self.current_block = self.graph.get_node(following_block).block();
+                self.seal_block(true_block);
+                self.seal_block(false_block);
+                let phi = self.create_phi();
+                self.graph
+                    .get_node_mut(phi)
+                    .predecessors_mut()
+                    .push(true_expression);
+                self.graph
+                    .get_node_mut(phi)
+                    .predecessors_mut()
+                    .push(false_expression);
+                self.graph
+                    .get_node_mut(phi)
+                    .predecessors_mut()
+                    .push(following_block);
+                Some(phi)
+            }
+            Tree::While(condition, expression, _) => {
+                self.seal_block(self.current_block);
+
+                let while_block = self.create_block("while".to_string());
+                self.graph
+                    .get_node_mut(while_block)
+                    .predecessors_mut()
+                    .push(self.current_block);
+                self.current_block = while_block;
+                self.loop_starts.push(while_block);
+
+                let condition_block = self.convert_boxed(condition)?;
+
+                let conditional_jump = self.create_conditional_jump(condition_block);
+                let true_block = self.create_true_projection(conditional_jump);
+                let false_block = self.create_false_projection(conditional_jump);
+
+                let follow_block = self.create_block("while-follow".to_string());
+                self.graph
+                    .get_node_mut(follow_block)
+                    .predecessors_mut()
+                    .push(false_block);
+                self.loop_ends.push(follow_block);
+
+                let body_block = self.create_block("while-body".to_string());
+                self.graph
+                    .get_node_mut(body_block)
+                    .predecessors_mut()
+                    .push(true_block);
+                self.seal_block(body_block);
+                self.current_block = body_block;
+                self.convert_boxed(expression);
+                let continue_jump = self.create_jump();
+                self.seal_block(self.current_block);
+                self.graph
+                    .get_node_mut(while_block)
+                    .predecessors_mut()
+                    .push(continue_jump);
+
+                self.loop_starts.pop();
+                self.seal_block(while_block);
+                self.loop_ends.pop();
+                self.seal_block(follow_block);
+                self.current_block = follow_block;
+                None
+            }
+            Tree::If(condition, body, else_body, _) => {
+                let condition_block = self.convert_boxed(condition)?;
+                let conditional_jump = self.create_conditional_jump(condition_block);
+                let true_projection = self.create_true_projection(conditional_jump);
+                let false_projection = self.create_false_projection(conditional_jump);
+                self.seal_block(self.current_block);
+
+                let true_block = self.process_branch(body, true_projection, "true");
+                let false_block = if let Some(else_body_ab) = else_body {
+                    Some(self.process_branch(else_body_ab, false_projection, "false"))
+                } else {
+                    None
+                };
+
+                let following_block = self.create_block("following-if".to_string());
+                self.current_block = following_block;
+                let following_node = self.graph.get_node_mut(following_block);
+                following_node.predecessors_mut().push(true_block);
+                if let Some(false_block_index) = false_block {
+                    following_node.predecessors_mut().push(false_block_index);
+                }
+                self.seal_block(following_block);
+                None
+            }
+            node => todo!("Unimplemented {:?}", node),
         }
     }
 
@@ -180,9 +397,44 @@ impl IRGraphConstructor {
         self.convert(*tree)
     }
 
+    pub fn create_conditional_jump(&mut self, condition: usize) -> usize {
+        self.graph
+            .register_node(Node::ConditionalJump(ConditionalJumpData::new(
+                self.current_block,
+                condition,
+            )))
+    }
+
+    pub fn process_branch(&mut self, a: Box<Tree>, b: usize, label: &str) -> usize {
+        let block = self.create_block(format!("if-body-{}", label));
+        self.current_block = block;
+        self.graph.get_node_mut(block).predecessors_mut().push(b);
+        self.seal_block(block);
+        self.convert_boxed(a);
+        self.seal_block(self.current_block);
+        self.create_jump()
+    }
+    pub fn create_block(&mut self, name: String) -> usize {
+        let result = self
+            .graph
+            .register_node(Node::Block(BlockData::new(self.next_block_number)));
+        self.next_block_number += 1;
+        result
+    }
+
+    pub fn create_jump(&mut self) -> usize {
+        self.graph
+            .register_node(Node::Jump(JumpData::new(self.current_block)))
+    }
+
     fn create_start_block(&mut self) -> usize {
         self.graph
             .register_node(Node::Start(StartData::new(self.current_block)))
+    }
+
+    fn create_noop(&mut self) -> usize {
+        self.graph
+            .register_node(Node::NoOp(NodeData::new(self.current_block, vec![])))
     }
 
     fn create_add(&mut self, left: usize, right: usize) -> usize {
@@ -203,6 +455,17 @@ impl IRGraphConstructor {
                     right,
                 ))),
         )
+    }
+
+    fn create_bitwise_not(&mut self, node: usize) -> usize {
+        self.graph
+            .register_node(
+                self.optimizer
+                    .transform(Node::BitwiseNegate(BitwiseNegateData::new(
+                        self.current_block,
+                        node,
+                    ))),
+            )
     }
 
     fn create_mul(&mut self, left: usize, right: usize) -> usize {
@@ -239,6 +502,103 @@ impl IRGraphConstructor {
             ))))
     }
 
+    fn create_shift_right(&mut self, left: usize, right: usize) -> usize {
+        self.graph.register_node(
+            self.optimizer
+                .transform(Node::ShiftRight(ShiftRightData::new(
+                    self.current_block,
+                    left,
+                    right,
+                ))),
+        )
+    }
+
+    fn create_shift_left(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(self.optimizer.transform(Node::ShiftLeft(ShiftLeftData::new(
+                self.current_block,
+                left,
+                right,
+            ))))
+    }
+    fn create_or(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(self.optimizer.transform(Node::Or(OrData::new(
+                self.current_block,
+                left,
+                right,
+            ))))
+    }
+    fn create_and(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(self.optimizer.transform(Node::And(AndData::new(
+                self.current_block,
+                left,
+                right,
+            ))))
+    }
+    fn create_xor(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(self.optimizer.transform(Node::Xor(XorData::new(
+                self.current_block,
+                left,
+                right,
+            ))))
+    }
+    fn create_lower(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(self.optimizer.transform(Node::Lower(LowerData::new(
+                self.current_block,
+                left,
+                right,
+            ))))
+    }
+    fn create_lower_equals(&mut self, left: usize, right: usize) -> usize {
+        self.graph.register_node(
+            self.optimizer
+                .transform(Node::LowerEquals(LowerEqualsData::new(
+                    self.current_block,
+                    left,
+                    right,
+                ))),
+        )
+    }
+    fn create_equals(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(self.optimizer.transform(Node::Equals(EqualsData::new(
+                self.current_block,
+                left,
+                right,
+            ))))
+    }
+    fn create_not_equals(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(self.optimizer.transform(Node::NotEquals(NotEqualsData::new(
+                self.current_block,
+                left,
+                right,
+            ))))
+    }
+    fn create_higher_equals(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(
+                self.optimizer
+                    .transform(Node::HigherEquals(HigherEqualsData::new(
+                        self.current_block,
+                        left,
+                        right,
+                    ))),
+            )
+    }
+    fn create_higher(&mut self, left: usize, right: usize) -> usize {
+        self.graph
+            .register_node(self.optimizer.transform(Node::Higher(HigherData::new(
+                self.current_block,
+                left,
+                right,
+            ))))
+    }
+
     fn create_return(&mut self, result: usize) -> usize {
         let current_side_effect = self.read_current_side_effect();
         self.graph.register_node(Node::Return(ReturnData::new(
@@ -249,10 +609,12 @@ impl IRGraphConstructor {
     }
 
     fn create_constant_int(&mut self, value: i32) -> usize {
-        // Always move const into start block, allows for better deduplication
         self.graph.register_node(
             self.optimizer
-                .transform(Node::ConstantInt(ConstantIntData::new(START_BLOCK, value))),
+                .transform(Node::ConstantInt(ConstantIntData::new(
+                    self.current_block,
+                    value,
+                ))),
         )
     }
 
@@ -365,7 +727,7 @@ impl IRGraphConstructor {
         node
     }
 
-    fn _seal_block(&mut self, block: usize) {
+    fn seal_block(&mut self, block: usize) {
         if !self.incomplete_phis.contains_key(&block) {
             self.sealed_blocks.push(block);
             return;
@@ -423,6 +785,31 @@ impl IRGraphConstructor {
 
     pub fn graph(self) -> IRGraph {
         self.graph
+    }
+
+    pub fn create_constant_bool(&mut self, value: bool) -> usize {
+        self.graph
+            .register_node(Node::ConstantBool(ConstantBoolData::new(
+                self.current_block,
+                value,
+            )))
+    }
+    pub fn create_true_projection(&mut self, block: usize) -> usize {
+        self.graph
+            .register_node(Node::Projection(ProjectionData::new(
+                self.current_block,
+                block,
+                ProjectionInformation::IfTrue,
+            )))
+    }
+
+    pub fn create_false_projection(&mut self, block: usize) -> usize {
+        self.graph
+            .register_node(Node::Projection(ProjectionData::new(
+                self.current_block,
+                block,
+                ProjectionInformation::IfFalse,
+            )))
     }
 }
 

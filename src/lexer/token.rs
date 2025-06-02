@@ -78,9 +78,20 @@ impl KeywordType {
             _ => None,
         }
     }
+
+    pub fn is_control_keyword(&self) -> bool {
+        matches!(
+            self,
+            Self::If | Self::While | Self::For | Self::Continue | Self::Break | Self::Return
+        )
+    }
+
+    pub fn is_type(&self) -> bool {
+        matches!(self, Self::Bool | Self::Int)
+    }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Eq, Hash, Clone, Debug, PartialEq)]
 pub enum OperatorType {
     AssignMinus,
     Minus,
@@ -92,8 +103,33 @@ pub enum OperatorType {
     Div,
     AssignMod,
     Mod,
+    LogicalNot,
+    BitwiseNot,
+    AssignBitwiseNot,
+    ShiftLeft,
+    AssignShiftLeft,
+    ShiftRight,
+    AssignShiftRight,
+    Lower,
+    LowerEquals,
+    Higher,
+    HigherEquals,
+    Equals,
+    NotEquals,
+    BitwiseAnd,
+    AssignBitwiseAnd,
+    BitwiseXor,
+    AssignBitwiseXor,
+    BitwiseOr,
+    AssignBitwiseOr,
+    LogicalAnd,
+    LogicalOr,
+    TernaryQuestionMark,
+    TernaryColon,
     Assign,
 }
+
+pub const MAX_PRECEDENCE: u8 = 13;
 
 impl OperatorType {
     pub fn is_assignment_operator(&self) -> bool {
@@ -105,7 +141,33 @@ impl OperatorType {
                 | Self::AssignMod
                 | Self::AssignPlus
                 | Self::AssignMinus
+                | Self::AssignBitwiseNot
+                | Self::AssignShiftLeft
+                | Self::AssignShiftRight
+                | Self::AssignBitwiseAnd
+                | Self::AssignBitwiseXor
+                | Self::AssignBitwiseOr
         )
+    }
+
+    pub fn get_precedence(&self) -> Vec<u8> {
+        match self {
+            Self::LogicalNot | Self::BitwiseNot => vec![1],
+            Self::Minus => vec![1, 3],
+            Self::Mul | Self::Div | Self::Mod => vec![2],
+            Self::Plus => vec![3],
+            Self::ShiftLeft | Self::ShiftRight => vec![4],
+            Self::Lower | Self::LowerEquals | Self::Higher | Self::HigherEquals => vec![5],
+            Self::Equals | Self::NotEquals => vec![6],
+            Self::BitwiseAnd => vec![7],
+            Self::BitwiseXor => vec![8],
+            Self::BitwiseOr => vec![9],
+            Self::LogicalAnd => vec![10],
+            Self::LogicalOr => vec![11],
+            Self::TernaryQuestionMark | Self::TernaryColon => vec![12],
+            operator if operator.is_assignment_operator() => vec![13],
+            _ => panic!("Attempted to get predecence of operator {:?}", self),
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -120,6 +182,29 @@ impl OperatorType {
             Self::Div => "/",
             Self::AssignMod => "%=",
             Self::Mod => "%",
+            Self::LogicalNot => "!",
+            Self::BitwiseNot => "~",
+            Self::AssignBitwiseNot => "~=",
+            Self::ShiftLeft => "<<",
+            Self::AssignShiftLeft => "<<=",
+            Self::ShiftRight => ">>",
+            Self::AssignShiftRight => ">>=",
+            Self::Lower => "<",
+            Self::LowerEquals => "<=",
+            Self::Higher => ">",
+            Self::HigherEquals => ">=",
+            Self::Equals => "==",
+            Self::NotEquals => "!=",
+            Self::BitwiseAnd => "&",
+            Self::AssignBitwiseAnd => "&=",
+            Self::BitwiseXor => "^",
+            Self::AssignBitwiseXor => "^=",
+            Self::BitwiseOr => "|",
+            Self::AssignBitwiseOr => "|=",
+            Self::LogicalAnd => "&&",
+            Self::LogicalOr => "||",
+            Self::TernaryQuestionMark => "?",
+            Self::TernaryColon => ":",
             Self::Assign => "=",
         }
     }
@@ -152,6 +237,7 @@ pub enum Token {
     Identifier(Span, String),
     Keyword(Span, KeywordType),
     NumberLiteral(Span, String, u64),
+    BoolLiteral(Span, String),
     Operator(Span, OperatorType),
     Separator(Span, SeperatorType),
 }
@@ -163,6 +249,7 @@ impl Token {
             Self::Identifier(span, _) => span,
             Self::Keyword(span, _) => span,
             Self::NumberLiteral(span, _, _) => span,
+            Self::BoolLiteral(span, _) => span,
             Self::Operator(span, _) => span,
             Self::Separator(span, _) => span,
         }
@@ -174,7 +261,28 @@ impl Token {
         }
     }
 
-    pub fn is_operator(&self, other_operator: &OperatorType) -> bool {
+    pub fn is_control_keyword(&self) -> bool {
+        match self {
+            Self::Keyword(_, keyword_type) => keyword_type.is_control_keyword(),
+            _ => false,
+        }
+    }
+
+    pub fn is_type_keyword(&self) -> bool {
+        match self {
+            Self::Keyword(_, keyword_type) => keyword_type.is_type(),
+            _ => false,
+        }
+    }
+
+    pub fn is_operator(&self) -> bool {
+        match self {
+            Self::Operator(_, _) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_operator_type(&self, other_operator: &OperatorType) -> bool {
         match self {
             Self::Operator(_, operator) => operator.eq(other_operator),
             _ => false,
@@ -198,6 +306,7 @@ impl Token {
             Self::Identifier(_, value) => value.as_str(),
             Self::Keyword(_, keyword) => keyword.as_str(),
             Self::NumberLiteral(_, value, _) => value.as_str(),
+            Self::BoolLiteral(_, value) => value.as_str(),
             Self::Operator(_, operator) => operator.as_str(),
             Self::Separator(_, seperator) => seperator.as_str(),
         }

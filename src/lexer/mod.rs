@@ -46,22 +46,69 @@ impl Lexer {
             '{' => self.seperator(SeperatorType::BraceOpen),
             '}' => self.seperator(SeperatorType::BraceClose),
             ';' => self.seperator(SeperatorType::Semicolon),
+            '?' => Token::Operator(self.build_span(1), OperatorType::TernaryQuestionMark),
+            ':' => Token::Operator(self.build_span(1), OperatorType::TernaryColon),
             '-' => self
-                .single_assign(OperatorType::Minus, OperatorType::AssignMinus)
+                .single_assign(OperatorType::Minus, OperatorType::AssignMinus, 1)
                 .ok_or(ParseError::Error("Not a character".to_string()))?,
             '+' => self
-                .single_assign(OperatorType::Plus, OperatorType::AssignPlus)
+                .single_assign(OperatorType::Plus, OperatorType::AssignPlus, 1)
                 .ok_or(ParseError::Error("Not a character".to_string()))?,
             '*' => self
-                .single_assign(OperatorType::Mul, OperatorType::AssignMul)
+                .single_assign(OperatorType::Mul, OperatorType::AssignMul, 1)
                 .ok_or(ParseError::Error("Not a character".to_string()))?,
             '/' => self
-                .single_assign(OperatorType::Div, OperatorType::AssignDiv)
+                .single_assign(OperatorType::Div, OperatorType::AssignDiv, 1)
                 .ok_or(ParseError::Error("Not a character".to_string()))?,
             '%' => self
-                .single_assign(OperatorType::Mod, OperatorType::AssignMod)
+                .single_assign(OperatorType::Mod, OperatorType::AssignMod, 1)
                 .ok_or(ParseError::Error("Not a character".to_string()))?,
-            '=' => Token::Operator(self.build_span(1), OperatorType::Assign),
+            '&' => self
+                .single_assign_logical(
+                    '&',
+                    OperatorType::BitwiseAnd,
+                    OperatorType::AssignBitwiseAnd,
+                    OperatorType::LogicalAnd,
+                )
+                .ok_or(ParseError::Error("Not a character".to_string()))?,
+            '~' => self
+                .single_assign(OperatorType::BitwiseNot, OperatorType::AssignBitwiseNot, 1)
+                .ok_or(ParseError::Error("Not a character".to_string()))?,
+            '^' => self
+                .single_assign(OperatorType::BitwiseXor, OperatorType::AssignBitwiseXor, 1)
+                .ok_or(ParseError::Error("Not a character".to_string()))?,
+            '|' => self
+                .single_assign_logical(
+                    '|',
+                    OperatorType::BitwiseOr,
+                    OperatorType::AssignBitwiseOr,
+                    OperatorType::LogicalOr,
+                )
+                .ok_or(ParseError::Error("Not a character".to_string()))?,
+            '<' => self
+                .shift_or_comparison(
+                    '<',
+                    OperatorType::ShiftLeft,
+                    OperatorType::AssignShiftLeft,
+                    OperatorType::Lower,
+                    OperatorType::LowerEquals,
+                )
+                .ok_or(ParseError::Error("Not a character".to_string()))?,
+            '>' => self
+                .shift_or_comparison(
+                    '>',
+                    OperatorType::ShiftRight,
+                    OperatorType::AssignShiftRight,
+                    OperatorType::Higher,
+                    OperatorType::HigherEquals,
+                )
+                .ok_or(ParseError::Error("Not a character".to_string()))?,
+            '!' => self
+                .not_or_comparison()
+                .ok_or(ParseError::Error("Not a character".to_string()))?,
+            '=' => self
+                .assign_or_comparison()
+                .ok_or(ParseError::Error("Not a character".to_string()))?,
             char => {
                 if self.is_identifier_char(char) {
                     if self.is_numeric(char) {
@@ -291,11 +338,73 @@ impl Lexer {
         &mut self,
         single_type: OperatorType,
         assign_type: OperatorType,
+        equals_offset: usize,
+    ) -> Option<Token> {
+        if self.has_more(equals_offset) && self.peek_pos(equals_offset)?.eq(&'=') {
+            return Some(Token::Operator(
+                self.build_span(equals_offset + 1),
+                assign_type,
+            ));
+        }
+        Some(Token::Operator(self.build_span(1), single_type))
+    }
+
+    fn single_assign_logical(
+        &mut self,
+        operator: char,
+        single_type: OperatorType,
+        assign_type: OperatorType,
+        logical_type: OperatorType,
     ) -> Option<Token> {
         if self.has_more(1) && self.peek_pos(1)?.eq(&'=') {
             return Some(Token::Operator(self.build_span(2), assign_type));
         }
+        if self.has_more(1) && self.peek_pos(1)?.eq(&operator) {
+            return Some(Token::Operator(self.build_span(2), logical_type));
+        }
         Some(Token::Operator(self.build_span(1), single_type))
+    }
+
+    fn assign_or_comparison(&mut self) -> Option<Token> {
+        if self.has_more(1) && self.peek_pos(1)?.eq(&'=') {
+            return Some(Token::Operator(self.build_span(2), OperatorType::Equals));
+        }
+        Some(Token::Operator(self.build_span(1), OperatorType::Assign))
+    }
+
+    fn not_or_comparison(&mut self) -> Option<Token> {
+        if self.has_more(1) && self.peek_pos(1)?.eq(&'=') {
+            return Some(Token::Operator(self.build_span(2), OperatorType::NotEquals));
+        }
+        Some(Token::Operator(
+            self.build_span(1),
+            OperatorType::LogicalNot,
+        ))
+    }
+
+    fn shift_or_comparison(
+        &mut self,
+        shift: char,
+        single_type: OperatorType,
+        assign_type: OperatorType,
+        comparison_type: OperatorType,
+        comparison_equal_type: OperatorType,
+    ) -> Option<Token> {
+        if !self.has_more(1) {
+            return Some(Token::Operator(self.build_span(1), comparison_type));
+        }
+
+        if self.peek_pos(1)?.ne(&shift) {
+            if self.peek_pos(1)?.ne(&'=') {
+                return Some(Token::Operator(self.build_span(2), comparison_equal_type));
+            } else {
+                return None;
+            }
+        }
+        if self.has_more(2) && self.peek_pos(2)?.eq(&'=') {
+            return Some(Token::Operator(self.build_span(3), assign_type));
+        }
+        Some(Token::Operator(self.build_span(2), single_type))
     }
 
     fn is_identifier_char(&self, char: char) -> bool {
