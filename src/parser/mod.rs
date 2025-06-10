@@ -85,7 +85,7 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let statement = if tokens
         .front()
         .unwrap()
-        .is_separator(&SeperatorType::ParenOpen)
+        .is_separator(&SeperatorType::BraceOpen)
     {
         parse_block(tokens)?
     } else if tokens.front().unwrap().is_control_keyword() {
@@ -260,7 +260,6 @@ fn parse_lvalue(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
 
 fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseError> {
     let lhs = parse_precedence_expression(tokens, MAX_PRECEDENCE)?;
-    println!("DBG: {:?}", tokens.front().unwrap());
     if !tokens.front().unwrap().is_operator() {
         return Ok(lhs);
     }

@@ -1,45 +1,44 @@
 use core::panic;
 use std::collections::HashMap;
 
-use tracing::{debug, event, Level};
+use tracing::{debug, trace};
 
 use crate::{
-    ir::{graph, node::JumpData},
+    ir::{
+        block::Block,
+        graph::START_BLOCK,
+        node::{
+            binary_operation::BinaryOperationData,
+            projection::{ProjectionData, ProjectionInformation},
+        },
+    },
     lexer::token::{OperatorType, Token},
     parser::{ast::Tree, symbols::Name},
     util::int_parsing::parse_int,
 };
 
 use super::{
-    graph::{IRGraph, START_BLOCK},
+    block::NodeIndex,
+    graph::{BlockIndex, IRGraph},
     node::{
-        AddData, AndData, BitwiseNegateData, BlockData, ConditionalJumpData, ConstantBoolData,
-        ConstantIntData, DivisionData, EqualsData, HigherData, HigherEqualsData, LowerData,
-        LowerEqualsData, ModuloData, MultiplicationData, Node, NodeData, NotEqualsData, OrData,
-        PhiData, ProjectionData, ProjectionInformation, ReturnData, ShiftLeftData, ShiftRightData,
-        StartData, SubtractionData, XorData,
+        unary_operation::UnaryOperationData, ConstantBoolData, ConstantIntData, Node, PhiData,
+        ReturnData,
     },
-    optimizer::Optimizer,
 };
 
 pub struct IRGraphConstructor {
-    optimizer: Optimizer,
     graph: IRGraph,
     current_definitions: HashMap<Name, HashMap<usize, usize>>,
     incomplete_phis: HashMap<usize, HashMap<Name, usize>>,
     current_side_effect: HashMap<usize, usize>,
     incomplete_side_effect_phis: HashMap<usize, usize>,
     sealed_blocks: Vec<usize>,
-    loop_starts: Vec<usize>,
-    loop_ends: Vec<usize>,
-    current_block: usize,
-    next_block_number: usize,
+    current_block_index: BlockIndex,
 }
 
 impl IRGraphConstructor {
     pub fn new() -> IRGraphConstructor {
         IRGraphConstructor {
-            optimizer: Optimizer::new(),
             graph: IRGraph::new(),
             current_definitions: HashMap::new(),
             incomplete_phis: HashMap::new(),
@@ -47,27 +46,36 @@ impl IRGraphConstructor {
             incomplete_side_effect_phis: HashMap::new(),
             // Start Block never gets more predecessors
             sealed_blocks: vec![0],
-            loop_starts: Vec::new(),
-            loop_ends: Vec::new(),
-            current_block: 0,
-            next_block_number: 2,
+            current_block_index: START_BLOCK,
         }
     }
 
     pub fn convert(&mut self, tree: Tree) -> Option<usize> {
         debug!("Converting AST {} to IR!", tree);
         match tree {
-            Tree::Program(functions) => {
-                for function in functions {
-                    self.convert(function);
-                }
-                None
+            Tree::Program(_) => {
+                unimplemented!("Program Trees cannot be parsed to a single IR Representation!")
             }
             Tree::Function(_, _, body) => {
-                let start = self.create_start_block();
-                let side_effect_projection = self.create_side_effect_projection(start);
+                let mut function_body_block = Block::new("fn-body".to_string());
+                // Function body can be entered from start function block
+                function_body_block.register_entry_point(START_BLOCK, 0);
+                let side_effect_projection = function_body_block.register_node(Node::Projection(
+                    ProjectionData::new(0, ProjectionInformation::SideEffect),
+                ));
+                self.current_block_index = self.graph.register_block(function_body_block);
+
                 self.write_current_side_effect(side_effect_projection);
                 self.convert_boxed(body);
+
+                // The last statement after parsing the body can exit the function
+                let last_statement_index = self
+                    .graph
+                    .get_block(self.current_block_index)
+                    .get_last_node_index();
+                self.graph
+                    .end_block_mut()
+                    .register_entry_point(self.current_block_index, last_statement_index);
                 None
             }
             Tree::Assignment(lvalue, operator, expression) => match *lvalue {
@@ -77,34 +85,39 @@ impl IRGraphConstructor {
                         if let Token::Operator(_, operator_type) = operator {
                             match operator_type {
                                 OperatorType::AssignMinus => {
-                                    let lhs = self.read_variable(name.clone(), self.current_block);
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
                                     let desugar = self.create_sub(lhs, rhs);
-                                    self.write_variable(name, self.current_block, desugar);
+                                    self.write_variable(name, self.current_block_index, desugar);
                                 }
                                 OperatorType::AssignPlus => {
-                                    let lhs = self.read_variable(name.clone(), self.current_block);
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
                                     let desugar = self.create_add(lhs, rhs);
-                                    self.write_variable(name, self.current_block, desugar);
+                                    self.write_variable(name, self.current_block_index, desugar);
                                 }
                                 OperatorType::AssignMul => {
-                                    let lhs = self.read_variable(name.clone(), self.current_block);
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
                                     let desugar = self.create_mul(lhs, rhs);
-                                    self.write_variable(name, self.current_block, desugar);
+                                    self.write_variable(name, self.current_block_index, desugar);
                                 }
                                 OperatorType::AssignDiv => {
-                                    let lhs = self.read_variable(name.clone(), self.current_block);
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
                                     let div = self.create_div(lhs, rhs);
                                     let desugar = self.create_div_mod_projection(div);
-                                    self.write_variable(name, self.current_block, desugar);
+                                    self.write_variable(name, self.current_block_index, desugar);
                                 }
                                 OperatorType::AssignMod => {
-                                    let lhs = self.read_variable(name.clone(), self.current_block);
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
                                     let mod_node = self.create_mod(lhs, rhs);
                                     let desugar = self.create_div_mod_projection(mod_node);
-                                    self.write_variable(name, self.current_block, desugar);
+                                    self.write_variable(name, self.current_block_index, desugar);
                                 }
                                 OperatorType::Assign => {
-                                    self.write_variable(name, self.current_block, rhs);
+                                    self.write_variable(name, self.current_block_index, rhs);
                                 }
                                 _ => panic!("Assignment has no assignment operator"),
                             };
@@ -180,7 +193,7 @@ impl IRGraphConstructor {
                 if let Tree::Name(name, _) = *identifier {
                     if initializer.is_some() {
                         let rhs = self.convert_boxed(initializer.unwrap()).unwrap();
-                        self.write_variable(name, self.current_block, rhs);
+                        self.write_variable(name, self.current_block_index, rhs);
                     }
                     None
                 } else {
@@ -189,7 +202,7 @@ impl IRGraphConstructor {
             }
             Tree::IdentifierExpression(identifier) => {
                 if let Tree::Name(name, _) = *identifier {
-                    let value = self.read_variable(name, self.current_block);
+                    let value = self.read_variable(name, self.current_block_index);
                     Some(value)
                 } else {
                     panic!("Identifier expression did not have name as identifier!")
@@ -223,11 +236,7 @@ impl IRGraphConstructor {
             },
             Tree::Return(expression, _) => {
                 let node = self.convert_boxed(expression).unwrap();
-                let return_node = self.create_return(node);
-                self.graph
-                    .end_block_mut()
-                    .predecessors_mut()
-                    .push(return_node);
+                self.create_return(node);
                 None
             }
             Tree::Type(_, _) => None,
@@ -255,140 +264,44 @@ impl IRGraphConstructor {
                 let true_projection = self.create_true_projection(conditional_jump);
                 let false_projection = self.create_false_projection(conditional_jump);
 
-                let false_block = self.create_block("ternary-false".to_string());
-                self.graph
-                    .get_node_mut(false_block)
-                    .predecessors_mut()
-                    .push(false_projection);
+                let mut false_block = Block::new("ternary-false".to_string());
+                false_block.register_entry_point(self.current_block_index, false_projection);
+                let mut true_block = Block::new("ternary-true".to_string());
+                true_block.register_entry_point(self.current_block_index, true_projection);
+                self.seal_block(self.current_block_index);
 
-                let true_block = self.create_block("ternary-true".to_string());
-                self.graph
-                    .get_node_mut(true_block)
-                    .predecessors_mut()
-                    .push(true_projection);
-                self.seal_block(self.current_block);
-
-                self.current_block = self.graph.get_node(false_block).block();
+                let false_block_index = self.graph.register_block(false_block);
+                self.current_block_index = false_block_index;
                 let false_expression = self.convert_boxed(false_value)?;
-                self.graph
-                    .get_node_mut(false_expression)
-                    .predecessors_mut()
-                    .push(false_block);
                 let false_jump = self.create_jump();
-                self.graph
-                    .get_node_mut(false_jump)
-                    .predecessors_mut()
-                    .push(false_expression);
 
-                self.current_block = self.graph.get_node(true_block).block();
+                let true_block_index = self.graph.register_block(true_block);
+                self.current_block_index = true_block_index;
                 let true_expression = self.convert_boxed(true_value)?;
-                self.graph
-                    .get_node_mut(true_expression)
-                    .predecessors_mut()
-                    .push(true_block);
                 let true_jump = self.create_jump();
-                self.graph
-                    .get_node_mut(true_jump)
-                    .predecessors_mut()
-                    .push(true_expression);
 
-                let following_block = self.create_block("ternary-following".to_string());
-                self.graph
-                    .get_node_mut(following_block)
-                    .predecessors_mut()
-                    .push(true_jump);
-                self.graph
-                    .get_node_mut(following_block)
-                    .predecessors_mut()
-                    .push(false_jump);
-                self.current_block = self.graph.get_node(following_block).block();
-                self.seal_block(true_block);
-                self.seal_block(false_block);
-                let phi = self.create_phi();
-                self.graph
-                    .get_node_mut(phi)
-                    .predecessors_mut()
-                    .push(true_expression);
-                self.graph
-                    .get_node_mut(phi)
-                    .predecessors_mut()
-                    .push(false_expression);
-                self.graph
-                    .get_node_mut(phi)
-                    .predecessors_mut()
-                    .push(following_block);
+                let mut following_block = Block::new("ternary-following".to_string());
+                following_block.register_entry_point(false_block_index, false_jump);
+                following_block.register_entry_point(true_block_index, true_jump);
+                self.current_block_index = self.graph.register_block(following_block);
+                self.seal_block(true_block_index);
+                self.seal_block(false_block_index);
+                let phi = self.create_phi_from_operands(vec![
+                    (false_block_index, false_expression),
+                    (true_block_index, true_expression),
+                ]);
                 Some(phi)
             }
-            Tree::While(condition, expression, _) => {
-                self.seal_block(self.current_block);
-
-                let while_block = self.create_block("while".to_string());
-                self.graph
-                    .get_node_mut(while_block)
-                    .predecessors_mut()
-                    .push(self.current_block);
-                self.current_block = while_block;
-                self.loop_starts.push(while_block);
-
-                let condition_block = self.convert_boxed(condition)?;
-
-                let conditional_jump = self.create_conditional_jump(condition_block);
-                let true_block = self.create_true_projection(conditional_jump);
-                let false_block = self.create_false_projection(conditional_jump);
-
-                let follow_block = self.create_block("while-follow".to_string());
-                self.graph
-                    .get_node_mut(follow_block)
-                    .predecessors_mut()
-                    .push(false_block);
-                self.loop_ends.push(follow_block);
-
-                let body_block = self.create_block("while-body".to_string());
-                self.graph
-                    .get_node_mut(body_block)
-                    .predecessors_mut()
-                    .push(true_block);
-                self.seal_block(body_block);
-                self.current_block = body_block;
-                self.convert_boxed(expression);
-                let continue_jump = self.create_jump();
-                self.seal_block(self.current_block);
-                self.graph
-                    .get_node_mut(while_block)
-                    .predecessors_mut()
-                    .push(continue_jump);
-
-                self.loop_starts.pop();
-                self.seal_block(while_block);
-                self.loop_ends.pop();
-                self.seal_block(follow_block);
-                self.current_block = follow_block;
-                None
+            Tree::While(_condition, _expression, _) => {
+                todo!("Implement while")
             }
-            Tree::If(condition, body, else_body, _) => {
-                let condition_block = self.convert_boxed(condition)?;
-                let conditional_jump = self.create_conditional_jump(condition_block);
-                let true_projection = self.create_true_projection(conditional_jump);
-                let false_projection = self.create_false_projection(conditional_jump);
-                self.seal_block(self.current_block);
-
-                let true_block = self.process_branch(body, true_projection, "true");
-                let false_block = if let Some(else_body_ab) = else_body {
-                    Some(self.process_branch(else_body_ab, false_projection, "false"))
-                } else {
-                    None
-                };
-
-                let following_block = self.create_block("following-if".to_string());
-                self.current_block = following_block;
-                let following_node = self.graph.get_node_mut(following_block);
-                following_node.predecessors_mut().push(true_block);
-                if let Some(false_block_index) = false_block {
-                    following_node.predecessors_mut().push(false_block_index);
-                }
-                self.seal_block(following_block);
-                None
+            Tree::If(_condition, _body, _else_body, _) => {
+                todo!("Implement if")
             }
+            Tree::For(_option_initializer, _comparison, _option_postincrement, _statement, _) => {
+                todo!("Implement for")
+            }
+            #[allow(unreachable_patterns)]
             node => todo!("Unimplemented {:?}", node),
         }
     }
@@ -397,282 +310,226 @@ impl IRGraphConstructor {
         self.convert(*tree)
     }
 
-    pub fn create_conditional_jump(&mut self, condition: usize) -> usize {
-        self.graph
-            .register_node(Node::ConditionalJump(ConditionalJumpData::new(
-                self.current_block,
-                condition,
-            )))
+    pub fn create_conditional_jump(&mut self, condition: NodeIndex) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::ConditionalJump(UnaryOperationData::new(condition)))
     }
 
-    pub fn process_branch(&mut self, a: Box<Tree>, b: usize, label: &str) -> usize {
-        let block = self.create_block(format!("if-body-{}", label));
-        self.current_block = block;
-        self.graph.get_node_mut(block).predecessors_mut().push(b);
-        self.seal_block(block);
+    // TODO: Refactor
+    pub fn process_branch(&mut self, a: Box<Tree>, _b: usize, label: &str) -> usize {
+        let block = Block::new(format!("if-body-{}", label));
+        self.current_block_index = self.graph.register_block(block);
+        //self.graph.get_node_mut(block).predecessors_mut().push(b);
+        self.seal_block(self.current_block_index);
         self.convert_boxed(a);
-        self.seal_block(self.current_block);
+        self.seal_block(self.current_block_index);
         self.create_jump()
     }
-    pub fn create_block(&mut self, name: String) -> usize {
-        let result = self
-            .graph
-            .register_node(Node::Block(BlockData::new(self.next_block_number)));
-        self.next_block_number += 1;
-        result
+
+    fn create_jump(&mut self) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Jump)
     }
 
-    pub fn create_jump(&mut self) -> usize {
-        self.graph
-            .register_node(Node::Jump(JumpData::new(self.current_block)))
+    fn create_add(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Add(BinaryOperationData::new(lhs, rhs)))
     }
 
-    fn create_start_block(&mut self) -> usize {
-        self.graph
-            .register_node(Node::Start(StartData::new(self.current_block)))
+    fn create_sub(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Subtraction(BinaryOperationData::new(lhs, rhs)))
     }
 
-    fn create_noop(&mut self) -> usize {
-        self.graph
-            .register_node(Node::NoOp(NodeData::new(self.current_block, vec![])))
+    fn create_mul(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Multiplication(BinaryOperationData::new(lhs, rhs)))
     }
 
-    fn create_add(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::Add(AddData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-
-    fn create_sub(&mut self, left: usize, right: usize) -> usize {
-        self.graph.register_node(
-            self.optimizer
-                .transform(Node::Subtraction(SubtractionData::new(
-                    self.current_block,
-                    left,
-                    right,
-                ))),
-        )
-    }
-
-    fn create_bitwise_not(&mut self, node: usize) -> usize {
-        self.graph
-            .register_node(
-                self.optimizer
-                    .transform(Node::BitwiseNegate(BitwiseNegateData::new(
-                        self.current_block,
-                        node,
-                    ))),
-            )
-    }
-
-    fn create_mul(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(
-                self.optimizer
-                    .transform(Node::Multiplication(MultiplicationData::new(
-                        self.current_block,
-                        left,
-                        right,
-                    ))),
-            )
-    }
-
-    fn create_div(&mut self, left: usize, right: usize) -> usize {
-        let current_side_effect = self.read_current_side_effect();
-        self.graph
-            .register_node(self.optimizer.transform(Node::Division(DivisionData::new(
-                self.current_block,
-                left,
-                right,
-                current_side_effect,
-            ))))
-    }
-
-    fn create_mod(&mut self, left: usize, right: usize) -> usize {
-        let current_side_effect = self.read_current_side_effect();
-        self.graph
-            .register_node(self.optimizer.transform(Node::Modulo(ModuloData::new(
-                self.current_block,
-                left,
-                right,
-                current_side_effect,
-            ))))
-    }
-
-    fn create_shift_right(&mut self, left: usize, right: usize) -> usize {
-        self.graph.register_node(
-            self.optimizer
-                .transform(Node::ShiftRight(ShiftRightData::new(
-                    self.current_block,
-                    left,
-                    right,
-                ))),
-        )
-    }
-
-    fn create_shift_left(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::ShiftLeft(ShiftLeftData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-    fn create_or(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::Or(OrData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-    fn create_and(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::And(AndData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-    fn create_xor(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::Xor(XorData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-    fn create_lower(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::Lower(LowerData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-    fn create_lower_equals(&mut self, left: usize, right: usize) -> usize {
-        self.graph.register_node(
-            self.optimizer
-                .transform(Node::LowerEquals(LowerEqualsData::new(
-                    self.current_block,
-                    left,
-                    right,
-                ))),
-        )
-    }
-    fn create_equals(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::Equals(EqualsData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-    fn create_not_equals(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::NotEquals(NotEqualsData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-    fn create_higher_equals(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(
-                self.optimizer
-                    .transform(Node::HigherEquals(HigherEqualsData::new(
-                        self.current_block,
-                        left,
-                        right,
-                    ))),
-            )
-    }
-    fn create_higher(&mut self, left: usize, right: usize) -> usize {
-        self.graph
-            .register_node(self.optimizer.transform(Node::Higher(HigherData::new(
-                self.current_block,
-                left,
-                right,
-            ))))
-    }
-
-    fn create_return(&mut self, result: usize) -> usize {
-        let current_side_effect = self.read_current_side_effect();
-        self.graph.register_node(Node::Return(ReturnData::new(
-            self.current_block,
-            result,
-            current_side_effect,
+    fn create_div(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Division(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
         )))
     }
 
-    fn create_constant_int(&mut self, value: i32) -> usize {
-        self.graph.register_node(
-            self.optimizer
-                .transform(Node::ConstantInt(ConstantIntData::new(
-                    self.current_block,
-                    value,
-                ))),
-        )
+    fn create_mod(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Modulo(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
     }
 
-    fn create_side_effect_projection(&mut self, node: usize) -> usize {
-        self.graph
-            .register_node(Node::Projection(ProjectionData::new(
-                self.current_block,
-                node,
-                ProjectionInformation::SideEffect,
-            )))
+    fn create_shift_left(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::ShiftLeft(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
     }
 
-    fn create_result_projection(&mut self, node: usize) -> usize {
+    fn create_shift_right(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::ShiftRight(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_lower(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Lower(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_lower_equals(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::LowerEquals(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_equals(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Equals(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_not_equals(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Lower(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_higher_equals(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::HigherEquals(
+            BinaryOperationData::new_with_sideeffect(lhs, rhs, sideeffect),
+        ))
+    }
+
+    fn create_higher(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Higher(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_or(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Or(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_and(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::And(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_xor(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Xor(BinaryOperationData::new_with_sideeffect(
+            lhs, rhs, sideeffect,
+        )))
+    }
+
+    fn create_bitwise_not(&mut self, node: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::BitwiseNegate(
+            UnaryOperationData::new_with_sideeffect(node, sideeffect),
+        ))
+    }
+
+    fn create_constant_int(&mut self, value: i32) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::ConstantInt(ConstantIntData::new(value)))
+    }
+
+    fn create_constant_bool(&mut self, value: bool) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::ConstantBool(ConstantBoolData::new(value)))
+    }
+
+    fn create_return(&mut self, input: NodeIndex) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        let return_node_index = current_block.register_node(Node::Return(ReturnData::new(input)));
         self.graph
-            .register_node(Node::Projection(ProjectionData::new(
-                self.current_block,
-                node,
-                ProjectionInformation::Result,
-            )))
+            .end_block_mut()
+            .register_entry_point(self.current_block_index, return_node_index);
+        return_node_index
     }
 
     fn create_phi(&mut self) -> usize {
-        self.graph
-            .register_node(Node::Phi(PhiData::new(self.current_block)))
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Phi(PhiData::empty()))
     }
 
-    fn create_phi_operands(&mut self, block: usize) -> usize {
+    fn create_phi_from_operands(&mut self, operands: Vec<(BlockIndex, NodeIndex)>) -> usize {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Phi(PhiData::new(operands)))
+    }
+
+    fn create_phi_operands(&mut self, block_index: BlockIndex) -> NodeIndex {
+        let block = self.graph.get_block(block_index);
+        let operands = block
+            .entry_points()
+            .iter()
+            .map(|(v1, v2)| (*v1, *v2))
+            .collect();
+        trace!("Creating phi with operands {:?}", operands);
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Phi(PhiData::new(operands)))
+    }
+
+    fn create_phi_variable_operands(
+        &mut self,
+        block_index: BlockIndex,
+        variable: Name,
+    ) -> NodeIndex {
         let mut operands = Vec::new();
-        for operand in self.graph.get_predecessors(block).clone() {
-            operands.push(self.read_side_effect(operand));
+        for (block_index, _) in self.graph.get_block(block_index).entry_points().clone() {
+            operands.push((
+                block_index,
+                self.read_variable(variable.clone(), block_index),
+            ));
         }
-        self.graph
-            .register_node(Node::Phi(PhiData::new_with_operands(
-                self.current_block,
-                operands,
-            )))
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Phi(PhiData::new(operands)))
     }
 
-    fn create_phi_variable_operands(&mut self, block: usize, variable: Name) -> usize {
-        let mut operands = Vec::new();
-        for operand in self.graph.get_predecessors(block).clone() {
-            let block = self.graph.get_node(operand).block();
-            operands.push(self.read_variable(variable.clone(), block));
-        }
-        self.graph
-            .register_node(Node::Phi(PhiData::new_with_operands(
-                self.current_block,
-                operands,
-            )))
-    }
-
-    fn create_div_mod_projection(&mut self, node: usize) -> usize {
-        let projection_side_effect = self.create_side_effect_projection(node);
+    fn create_div_mod_projection(&mut self, input: NodeIndex) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        let projection_side_effect = current_block.register_node(Node::Projection(
+            ProjectionData::new(input, ProjectionInformation::SideEffect),
+        ));
+        let result_projection = current_block.register_node(Node::Projection(ProjectionData::new(
+            input,
+            ProjectionInformation::Result,
+        )));
         self.write_current_side_effect(projection_side_effect);
-        self.create_result_projection(node)
+        result_projection
     }
 
     fn write_variable(&mut self, variable: Name, block: usize, node: usize) {
+        trace!("Trying to write into variable {:?}", variable);
         match self.current_definitions.contains_key(&variable) {
             true => {
                 self.current_definitions
@@ -688,56 +545,86 @@ impl IRGraphConstructor {
     }
 
     fn read_variable(&mut self, variable: Name, block: usize) -> usize {
+        trace!("Trying to read from variable {:?}", variable);
         if self.current_definitions.contains_key(&variable) {
-            *self
+            if self
                 .current_definitions
                 .get(&variable)
                 .unwrap()
-                .get(&block)
-                .unwrap()
+                .contains_key(&block)
+            {
+                *self
+                    .current_definitions
+                    .get(&variable)
+                    .unwrap()
+                    .get(&block)
+                    .unwrap()
+            } else {
+                self.read_variable_recursive(variable, block)
+            }
         } else {
             self.read_variable_recursive(variable, block)
         }
     }
 
-    fn read_variable_recursive(&mut self, variable: Name, block: usize) -> usize {
-        let node = if !self.sealed_blocks.contains(&block) {
+    fn read_variable_recursive(&mut self, variable: Name, block_index: BlockIndex) -> usize {
+        let node = if !self.sealed_blocks.contains(&block_index) {
             let phi = self.create_phi();
-            if let std::collections::hash_map::Entry::Vacant(e) = self.incomplete_phis.entry(block)
+            trace!("Writing incomplete phi: ({:?}, {})", variable, phi);
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                self.incomplete_phis.entry(block_index)
             {
                 e.insert(HashMap::from([(variable.clone(), phi)]));
             } else {
                 self.incomplete_phis
-                    .get_mut(&block)
+                    .get_mut(&block_index)
                     .unwrap()
                     .insert(variable.clone(), phi);
             }
             phi
-        } else if self.graph.get_predecessors(block).len() == 1 {
-            self.read_variable(
-                variable.clone(),
-                *self.graph.get_predecessors(block).first().unwrap(),
-            )
+        } else if self.graph.get_block(block_index).entry_points().len() == 1 {
+            let (previous_block, _) = self
+                .graph
+                .get_block(block_index)
+                .entry_points()
+                .iter()
+                .last()
+                .unwrap();
+            self.read_variable(variable.clone(), *previous_block)
         } else {
-            let phi = self.create_phi_variable_operands(block, variable.clone());
-            self.write_variable(variable.clone(), block, phi);
+            let phi = self.create_phi_variable_operands(block_index, variable.clone());
+            self.write_variable(variable.clone(), block_index, phi);
             phi
         };
-        self.write_variable(variable.clone(), block, node);
+        self.write_variable(variable.clone(), block_index, node);
         node
     }
 
-    fn seal_block(&mut self, block: usize) {
+    fn seal_block(&mut self, block: BlockIndex) {
+        trace!("Current graph before sealing block: {}", self.graph);
+        trace!("Incomplete Phis: {:?}", self.incomplete_phis);
         if !self.incomplete_phis.contains_key(&block) {
             self.sealed_blocks.push(block);
             return;
         }
         for (variable, index) in self.incomplete_phis.get(&block).unwrap().clone() {
-            let phi = self.graph.remove_node(index);
-            if let Node::Phi(mut data) = phi {
-                for predecessor in data.node_data().predecessors().clone() {
-                    let block = self.graph.get_node(predecessor).block();
-                    data.add_operand(self.read_variable(variable.clone(), block));
+            let operands = {
+                let mut operands = Vec::new();
+                let block = self.graph.get_block_mut(block);
+                if let Node::Phi(data) = block.get_node_mut(index) {
+                    for (block_index, _) in data.operands() {
+                        operands.push((
+                            block_index,
+                            self.read_variable(variable.clone(), block_index),
+                        ));
+                    }
+                }
+                operands
+            };
+            let block = self.graph.get_block_mut(block);
+            if let Node::Phi(data) = block.get_node_mut(index) {
+                for operand in operands {
+                    data.add_operand(operand);
                 }
             }
         }
@@ -745,7 +632,7 @@ impl IRGraphConstructor {
     }
 
     fn write_current_side_effect(&mut self, node: usize) {
-        self.write_side_effect(self.current_block, node);
+        self.write_side_effect(self.current_block_index, node);
     }
 
     fn write_side_effect(&mut self, block: usize, node: usize) {
@@ -753,7 +640,7 @@ impl IRGraphConstructor {
     }
 
     fn read_current_side_effect(&mut self) -> usize {
-        self.read_side_effect(self.current_block)
+        self.read_side_effect(self.current_block_index)
     }
 
     fn read_side_effect(&mut self, block: usize) -> usize {
@@ -772,8 +659,15 @@ impl IRGraphConstructor {
                 panic!("Double read side effect recursive!");
             }
             phi
-        } else if self.graph.get_predecessors(block).len() == 1 {
-            self.read_side_effect(*self.graph.get_predecessors(block).first().unwrap())
+        } else if self.graph.get_block(block).entry_points().len() == 1 {
+            let (previous_block, _) = self
+                .graph
+                .get_block(block)
+                .entry_points()
+                .iter()
+                .last()
+                .unwrap();
+            self.read_side_effect(*previous_block)
         } else {
             let phi = self.create_phi_operands(block);
             self.write_side_effect(block, phi);
@@ -787,29 +681,20 @@ impl IRGraphConstructor {
         self.graph
     }
 
-    pub fn create_constant_bool(&mut self, value: bool) -> usize {
-        self.graph
-            .register_node(Node::ConstantBool(ConstantBoolData::new(
-                self.current_block,
-                value,
-            )))
-    }
-    pub fn create_true_projection(&mut self, block: usize) -> usize {
-        self.graph
-            .register_node(Node::Projection(ProjectionData::new(
-                self.current_block,
-                block,
-                ProjectionInformation::IfTrue,
-            )))
+    pub fn create_true_projection(&mut self, conditional_jump: NodeIndex) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Projection(ProjectionData::new(
+            conditional_jump,
+            ProjectionInformation::IfTrue,
+        )))
     }
 
-    pub fn create_false_projection(&mut self, block: usize) -> usize {
-        self.graph
-            .register_node(Node::Projection(ProjectionData::new(
-                self.current_block,
-                block,
-                ProjectionInformation::IfFalse,
-            )))
+    pub fn create_false_projection(&mut self, conditional_jump: NodeIndex) -> NodeIndex {
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::Projection(ProjectionData::new(
+            conditional_jump,
+            ProjectionInformation::IfFalse,
+        )))
     }
 }
 

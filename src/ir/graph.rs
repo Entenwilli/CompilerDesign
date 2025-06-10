@@ -1,66 +1,63 @@
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
 
-use super::node::{BlockData, Node};
+use super::block::Block;
+
+pub type BlockIndex = usize;
 
 pub const START_BLOCK: usize = 0;
 pub const END_BLOCK: usize = 1;
 
 pub struct IRGraph {
-    nodes: HashMap<usize, Node>,
-    next_node_index: usize,
+    blocks: Vec<Block>,
 }
 
 impl IRGraph {
     pub fn new() -> IRGraph {
         IRGraph {
-            nodes: HashMap::from([
-                (START_BLOCK, Node::Block(BlockData::new(START_BLOCK))),
-                (END_BLOCK, Node::Block(BlockData::new(END_BLOCK))),
-            ]),
-            next_node_index: 2,
+            blocks: vec![
+                Block::new("start".to_string()),
+                Block::new("end".to_string()),
+            ],
         }
     }
 
-    pub fn register_node(&mut self, node: Node) -> usize {
-        self.nodes.insert(self.next_node_index, node);
-        self.next_node_index += 1;
-        self.next_node_index - 1
+    pub fn start_block(&self) -> &Block {
+        self.blocks.get(START_BLOCK).expect("Start Block missing!")
     }
 
-    pub fn remove_node(&mut self, index: usize) -> Node {
-        self.nodes
-            .remove(&index)
-            .expect("Cannot remove node at index")
+    pub fn start_block_mut(&mut self) -> &mut Block {
+        self.blocks
+            .get_mut(START_BLOCK)
+            .expect("Start Block missing!")
     }
 
-    pub fn get_node(&self, index: usize) -> &Node {
-        self.nodes.get(&index).expect("Cannot find node at index")
+    pub fn register_block(&mut self, block: Block) -> BlockIndex {
+        self.blocks.push(block);
+        self.blocks.len() - 1
     }
 
-    pub fn get_node_mut(&mut self, index: usize) -> &mut Node {
-        self.nodes
-            .get_mut(&index)
-            .expect("Cannot find node at index")
+    pub fn get_block(&self, block_index: BlockIndex) -> &Block {
+        self.blocks
+            .get(block_index)
+            .expect("Expected block at block index")
     }
 
-    pub fn get_predecessors(&self, index: usize) -> &Vec<usize> {
-        let node = self
-            .nodes
-            .get(&index)
-            .expect("Cannot find node for predecessors");
-        node.predecessors()
+    pub fn get_block_mut(&mut self, block_index: BlockIndex) -> &mut Block {
+        self.blocks
+            .get_mut(block_index)
+            .expect("Expected block at block index")
     }
 
-    pub fn start_block(&self) -> &Node {
-        self.nodes.get(&START_BLOCK).expect("Start Block missing!")
+    pub fn get_blocks(&self) -> &Vec<Block> {
+        &self.blocks
     }
 
-    pub fn end_block(&self) -> &Node {
-        self.nodes.get(&END_BLOCK).expect("End Block missing!")
+    pub fn end_block(&self) -> &Block {
+        self.blocks.get(END_BLOCK).expect("End Block missing!")
     }
 
-    pub fn end_block_mut(&mut self) -> &mut Node {
-        self.nodes.get_mut(&END_BLOCK).expect("End Block missing!")
+    pub fn end_block_mut(&mut self) -> &mut Block {
+        self.blocks.get_mut(END_BLOCK).expect("End Block missing!")
     }
 }
 
@@ -72,17 +69,9 @@ impl Default for IRGraph {
 
 impl Display for IRGraph {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "START: {}", self.get_node(START_BLOCK))?;
-        for i in END_BLOCK + 1..self.next_node_index {
-            writeln!(
-                f,
-                "{}-{}: {}",
-                self.get_node(i).block(),
-                i,
-                self.get_node(i)
-            )?
+        for block in &self.blocks {
+            writeln!(f, "{}", block)?;
         }
-        writeln!(f, "END: {}", self.get_node(END_BLOCK))?;
         Ok(())
     }
 }

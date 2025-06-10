@@ -1,18 +1,13 @@
-use std::{
-    cmp::Ordering,
-    collections::{HashMap, VecDeque},
-    thread::current,
-};
+use std::collections::{HashMap, VecDeque};
 
-use rand::rand_core::block;
-use tracing::{debug, error, event, info, trace, Level};
+use tracing::{debug, trace};
 
 use crate::ir::{
-    graph::{IRGraph, END_BLOCK},
+    block::{Block, NodeIndex},
+    graph::{BlockIndex, IRGraph, END_BLOCK},
     node::{
-        self, BinaryOperationData, ConditionalJumpData, ConstantBoolData, ConstantIntData, Node,
-        ProjectionInformation, BINARY_OPERATION_LEFT, BINARY_OPERATION_RIGHT, COMPARISON_INDEX,
-        RETURN_RESULT_INDEX,
+        binary_operation::BinaryOperationData, projection::ProjectionInformation, ConstantIntData,
+        Node,
     },
 };
 
@@ -20,7 +15,8 @@ use super::regalloc::{HardwareRegister, Register, RegisterAllocator};
 
 type Registers<'a> = HashMap<&'a Node, Box<dyn Register>>;
 
-const TEMPLATE: &str = ".global main
+const TEMPLATE: &str = " .section .note.GNU-stack,\"\",@progbits
+.global main
 .global _main
 .text
 main:
@@ -61,239 +57,179 @@ impl CodeGenerator {
         ir_graph: &IRGraph,
         register_allocator: RegisterAllocator,
     ) -> String {
-        let mut visited = Vec::new();
         let (registers, stack_offset) = register_allocator.allocate_registers(ir_graph);
         let mut code = String::new();
         code.push_str("pushq %rbp\n");
         code.push_str("mov %rsp, %rbp\n");
         code.push_str(&format!("subq ${}, %rsp\n", stack_offset));
 
-        let mut open_blocks = VecDeque::new();
-        // FIXME: Can enter exit block from multiple points, therefore different points to starting
-        // analysis
-        let mut recorded_ends: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
-        open_blocks.push_back(END_BLOCK);
-        recorded_ends.insert(END_BLOCK, vec![(END_BLOCK, END_BLOCK)]);
-        let mut block_codes = String::new();
-        while !open_blocks.is_empty() {
-            trace!("Current recorded ends: {:?}", recorded_ends);
-            let current_block = open_blocks.pop_front().unwrap();
-            trace!("Current block: {}", current_block);
-            let mut current_block_ends = recorded_ends.remove(&current_block).unwrap();
-            current_block_ends.sort_by(|(x, _), (y, _)| x.cmp(y));
-            trace!("After recorded ends: {:?}", recorded_ends);
-            let mut full_block_code = String::new();
-            for current_block_end in current_block_ends {
-                trace!(
-                    "Generating Assembly for Block {}, with origins at {}",
-                    current_block,
-                    current_block_end.1
-                );
-                trace!("Current code:{}\n", block_codes);
-                let (block_code, previous_blocks) = &self.generate_for_node(
-                    current_block_end.0,
-                    ir_graph,
-                    &registers,
-                    &mut visited,
-                    current_block_end.1,
-                );
-                full_block_code.push_str(&block_code);
-                info!(
-                    "Generated assembly for block {:?}: {}",
-                    current_block, block_code
-                );
-                trace!(
-                    "New open blocks: {:?} with previous node {:?}",
-                    previous_blocks,
-                    current_block
-                );
-                for previous_block in previous_blocks {
-                    let block_index = ir_graph.get_node(*previous_block).block();
-                    if !open_blocks.contains(&block_index) {
-                        open_blocks.push_back(block_index);
-                    }
-                    if let Some(mut old_end) = recorded_ends.remove(&block_index) {
-                        old_end.push((*previous_block, current_block));
-                        recorded_ends.insert(block_index, old_end);
-                    } else {
-                        recorded_ends.insert(block_index, vec![(*previous_block, current_block)]);
-                    }
+        let mut block_code = String::new();
+        // Jump Information contains for each block(key) the map of exits (NodeIndex[Node that jumps], BlockIndex[Block that is jumped to])
+        let mut jump_information = HashMap::new();
+        let mut visited = Vec::new();
+        let mut queue = VecDeque::new();
+        jump_information.insert(END_BLOCK, HashMap::new());
+        visited.push(END_BLOCK);
+        queue.push_back((ir_graph.end_block(), END_BLOCK));
+        while !queue.is_empty() {
+            let (block, block_index) = queue.pop_front().unwrap();
+            for (previous_block_index, previous_node) in block.entry_points() {
+                if !visited.contains(previous_block_index) {
+                    let previous_block = ir_graph.get_block(*previous_block_index);
+                    queue.push_back((previous_block, *previous_block_index));
+                    visited.push(*previous_block_index);
+                    jump_information.insert(
+                        *previous_block_index,
+                        HashMap::from([(*previous_node, block_index)]),
+                    );
+                } else {
+                    let mut existing_exits = jump_information
+                        .get_mut(previous_block_index)
+                        .unwrap()
+                        .clone();
+                    existing_exits.insert(*previous_node, block_index);
+                    jump_information.insert(*previous_block_index, existing_exits);
                 }
             }
-            block_codes = full_block_code + &block_codes;
+            block_code = self.generate_for_block(
+                block,
+                block_index,
+                jump_information.get(&block_index).unwrap(),
+                ir_graph,
+                &registers,
+            ) + block_code.as_str();
         }
-        code.push_str(&block_codes);
+        code.push_str(&block_code);
+        code
+    }
+
+    pub fn generate_for_block(
+        &self,
+        block: &Block,
+        block_index: BlockIndex,
+        jump_information: &HashMap<NodeIndex, BlockIndex>,
+        ir_graph: &IRGraph,
+        registers: &Registers,
+    ) -> String {
+        // Start and End Nodes should not emit code
+        if block.get_nodes().is_empty() {
+            return String::new();
+        }
+
+        let mut code = String::new();
+        let block_label = self.jump_label.get(&block_index).unwrap();
+        code.push_str(&format!("{}:\n", block_label));
+        for (node_index, node) in block.get_nodes().iter().enumerate() {
+            code.push_str(&self.generate_for_node(
+                node,
+                node_index,
+                block,
+                jump_information,
+                ir_graph,
+                registers,
+            ));
+        }
         code
     }
 
     pub fn generate_for_node(
         &self,
-        node_index: usize,
+        node: &Node,
+        node_index: NodeIndex,
+        block: &Block,
+        jump_information: &HashMap<NodeIndex, BlockIndex>,
         ir_graph: &IRGraph,
         registers: &Registers,
-        visited: &mut Vec<usize>,
-        following_block: usize,
-    ) -> (String, Vec<usize>) {
-        debug!(
-            "Generating assembly for node {}",
-            ir_graph.get_node(node_index)
-        );
+    ) -> String {
+        debug!("Generating assembly for node {}", node);
         let mut code = String::new();
-        let mut previous_blocks = Vec::new();
-        let node = ir_graph.get_node(node_index);
-        if let Node::Block(data) = node {
-            if let Some(label) = self.jump_label.get(&node.block()) {
-                code.push_str(&format!("{}:\n", label));
-            }
-            debug!("Finished generating code for block: {:?}", data);
-            previous_blocks.append(&mut data.predecessors().clone());
-            return (code, previous_blocks);
-        }
-        for predecessor in node.predecessors() {
-            let predecessor_block = ir_graph.get_node(*predecessor).block();
-            if predecessor_block.ne(&node.block()) {
-                // DO NOT ANALYZE BLOCKS NOT IN CURRENT BLOCK
-                trace!(
-                    "Not in current analyzed block({:?}): {:?}",
-                    node.block(),
-                    predecessor_block
-                );
-                continue;
-            }
-            if !visited.contains(predecessor) {
-                visited.push(*predecessor);
-                let (predecessor_code, predecessor_blocks) = self.generate_for_node(
-                    *predecessor,
-                    ir_graph,
-                    registers,
-                    visited,
-                    following_block,
-                );
-                code.push_str(&predecessor_code);
-                for previous_block in predecessor_blocks {
-                    if !previous_blocks.contains(&previous_block) {
-                        previous_blocks.push(previous_block);
-                    }
-                }
-            }
-        }
         match node {
-            Node::Add(data) => {
-                code.push_str(&self.generate_binary_operation(
-                    node_index,
-                    data.binary_operation_data(),
-                    ir_graph,
-                    registers,
-                    "add",
-                ));
+            Node::Add(_) => {
+                code.push_str(&self.generate_binary_operation(node_index, block, registers, "add"));
             }
-            Node::Subtraction(data) => {
-                code.push_str(&self.generate_binary_operation(
-                    node_index,
-                    data.binary_operation_data(),
-                    ir_graph,
-                    registers,
-                    "sub",
-                ));
+            Node::Subtraction(_) => {
+                code.push_str(&self.generate_binary_operation(node_index, block, registers, "sub"));
             }
-            Node::Multiplication(data) => {
-                code.push_str(&self.generate_binary_operation_rax(
-                    node_index,
-                    data.binary_operation_data(),
-                    ir_graph,
-                    registers,
-                    "imul",
-                    "mul",
-                ));
+            Node::Multiplication(_) => {
+                code.push_str(
+                    &self
+                        .generate_binary_operation_rax(node_index, block, registers, "imul", "mul"),
+                );
             }
-            Node::Division(data) => {
-                code.push_str(&self.generate_binary_operation_rax(
-                    node_index,
-                    data.binary_operation_data(),
-                    ir_graph,
-                    registers,
-                    "idiv",
-                    "div",
-                ));
+            Node::Division(_) => {
+                code.push_str(
+                    &self
+                        .generate_binary_operation_rax(node_index, block, registers, "idiv", "div"),
+                );
             }
-            Node::Modulo(data) => {
-                code.push_str(&self.generate_binary_operation_rax(
-                    node_index,
-                    data.binary_operation_data(),
-                    ir_graph,
-                    registers,
-                    "idiv",
-                    "mod",
-                ));
+            Node::Modulo(_) => {
+                code.push_str(
+                    &self
+                        .generate_binary_operation_rax(node_index, block, registers, "idiv", "mod"),
+                );
             }
             Node::Return(_) => {
-                code.push_str(&self.generate_return(ir_graph, registers, node_index));
+                code.push_str(&self.generate_return(block, registers, node_index));
             }
             Node::ConstantInt(data) => {
-                code.push_str(&self.generate_constant_int(data, ir_graph, registers, node_index));
+                code.push_str(&self.generate_constant_int(data, block, registers, node_index));
             }
             Node::ShiftLeft(data) => {
-                code.push_str(&self.generate_shift(
-                    node_index,
-                    data.binary_operation_data(),
-                    ir_graph,
-                    registers,
-                    "sall",
-                ));
+                code.push_str(&self.generate_shift(node_index, block, data, registers, "sall"));
             }
             Node::ShiftRight(data) => {
-                code.push_str(&self.generate_shift(
-                    node_index,
-                    data.binary_operation_data(),
-                    ir_graph,
-                    registers,
-                    "sarl",
-                ));
+                code.push_str(&self.generate_shift(node_index, block, data, registers, "sarl"));
             }
             Node::Equals(data) => {
-                code.push_str(&self.generate_comparison(
-                    node_index,
-                    data.binary_operation_data(),
-                    ir_graph,
-                    registers,
-                ));
+                code.push_str(&self.generate_comparison(block, data, registers));
             }
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
             Node::Phi(data) => {
-                println!(
-                    "Warning! Phi present: Aliasing {:?}",
-                    data.node_data().predecessors()
-                );
+                debug!("Warning! Phi present: Aliasing {:?}", data.operands());
+                let destination_register = registers.get(node).unwrap();
+                for (operand_block, operand_node) in data.operands() {
+                    let operand_block = ir_graph.get_block(operand_block);
+                    let operand_node = operand_block.get_node(operand_node);
+                    let register = registers
+                        .get(operand_node)
+                        .expect("Expected register for phi operand");
+                    code.push_str(&format!(
+                        "mov {}, {}\n",
+                        register.as_assembly(),
+                        destination_register.as_assembly()
+                    ));
+                }
             }
-            Node::Jump(_) => {
+            Node::Jump => {
                 trace!(
-                    "Generating assembly for jump: {} with destination {}",
+                    "Generating assembly for jump: {} with destination XXX",
                     node,
-                    following_block
                 );
-                let label = self.jump_label.get(&following_block).unwrap();
+                let previous_block_index = jump_information.get(&node_index).unwrap();
+                let label = self.jump_label.get(previous_block_index).unwrap();
                 code.push_str(&format!("jmp {}\n", label));
             }
             Node::ConditionalJump(_) => {}
             Node::Projection(data) if data.projection_info().eq(&ProjectionInformation::IfTrue) => {
+                let previous_block_index = jump_information.get(&node_index).unwrap();
                 let conditional_jump_code =
-                    self.generate_conditional_jump(node_index, following_block, ir_graph);
+                    self.generate_conditional_jump(node_index, block, *previous_block_index);
                 code.push_str(&conditional_jump_code.expect("Expected jump code"));
             }
             Node::Projection(data)
                 if data.projection_info().eq(&ProjectionInformation::IfFalse) =>
             {
+                let previous_block_index = jump_information.get(&node_index).unwrap();
                 let jump_label = self
                     .jump_label
-                    .get(&following_block)
+                    .get(previous_block_index)
                     .expect("Expected jump label for false if");
                 code.push_str(&format!("jmp {}\n", jump_label));
             }
-            Node::Block(data) => return (code, previous_blocks),
-            Node::Projection(_) | Node::Start(_) => return (code, previous_blocks),
+            Node::Projection(_) => return code,
             node => panic!("unimplemented node {:?}", node),
         }
-        (code, previous_blocks)
+        code
     }
 
     pub fn generate_constant_bool(&self, value: bool) -> String {
@@ -309,18 +245,18 @@ impl CodeGenerator {
     pub fn generate_conditional_jump(
         &self,
         projection_index: usize,
-        suceeding_block: usize,
-        ir_graph: &IRGraph,
+        current_block: &Block,
+        previous_block: usize,
     ) -> Option<String> {
         let mut code = String::new();
-        let true_label = self.jump_label.get(&suceeding_block).unwrap();
-        let projection = ir_graph.get_node(projection_index);
-        let comparision = ir_graph
+        let true_label = self.jump_label.get(&previous_block).unwrap();
+        let projection = current_block.get_node(projection_index);
+        let comparision = *current_block
             .get_node(*projection.predecessors().get(0).unwrap())
             .predecessors()
-            .get(COMPARISON_INDEX)
+            .get(0)
             .unwrap();
-        let op_code = match ir_graph.get_node(*comparision) {
+        let op_code = match current_block.get_node(comparision) {
             Node::Lower(_) => "jb",
             Node::LowerEquals(_) => "jbe",
             Node::Equals(_) => "je",
@@ -336,17 +272,12 @@ impl CodeGenerator {
 
     pub fn generate_comparison(
         &self,
-        node_index: usize,
+        block: &Block,
         operation_data: &BinaryOperationData,
-        ir_graph: &IRGraph,
         registers: &Registers,
     ) -> String {
-        let left_value = registers
-            .get(ir_graph.get_node(operation_data.left()))
-            .unwrap();
-        let right_value = registers
-            .get(ir_graph.get_node(operation_data.right()))
-            .unwrap();
+        let left_value = registers.get(block.get_node(operation_data.lhs())).unwrap();
+        let right_value = registers.get(block.get_node(operation_data.rhs())).unwrap();
         let mut code = String::new();
         //TODO: Both registers can be in memory
         code.push_str(&format!(
@@ -360,27 +291,18 @@ impl CodeGenerator {
     pub fn generate_binary_operation(
         &self,
         node_index: usize,
-        _operation_data: &BinaryOperationData,
-        ir_graph: &IRGraph,
+        block: &Block,
         registers: &Registers,
         op_code: &str,
     ) -> String {
         let left_value = registers
-            .get(ir_graph.get_node(predecessor_skip_projection(
-                node_index,
-                BINARY_OPERATION_LEFT,
-                ir_graph,
-            )))
+            .get(block.get_node(predecessor_skip_projection(node_index, 0, block)))
             .unwrap();
         let right_value = registers
-            .get(ir_graph.get_node(predecessor_skip_projection(
-                node_index,
-                BINARY_OPERATION_RIGHT,
-                ir_graph,
-            )))
+            .get(block.get_node(predecessor_skip_projection(node_index, 1, block)))
             .unwrap();
 
-        let destination_register = registers.get(ir_graph.get_node(node_index)).unwrap();
+        let destination_register = registers.get(block.get_node(node_index)).unwrap();
 
         let mut code = String::new();
         if !left_value.hardware_register() && !destination_register.hardware_register() {
@@ -416,27 +338,18 @@ impl CodeGenerator {
     pub fn generate_binary_operation_rax(
         &self,
         node_index: usize,
-        _operation_data: &BinaryOperationData,
-        ir_graph: &IRGraph,
+        block: &Block,
         registers: &Registers,
         op_code: &str,
         mode: &str,
     ) -> String {
         let left_value = registers
-            .get(ir_graph.get_node(predecessor_skip_projection(
-                node_index,
-                BINARY_OPERATION_LEFT,
-                ir_graph,
-            )))
+            .get(block.get_node(predecessor_skip_projection(node_index, 0, block)))
             .unwrap();
         let right_value = registers
-            .get(ir_graph.get_node(predecessor_skip_projection(
-                node_index,
-                BINARY_OPERATION_RIGHT,
-                ir_graph,
-            )))
+            .get(block.get_node(predecessor_skip_projection(node_index, 1, block)))
             .unwrap();
-        let destination_register = registers.get(ir_graph.get_node(node_index)).unwrap();
+        let destination_register = registers.get(block.get_node(node_index)).unwrap();
         let mut code = String::new();
         code.push_str("mov $0, %rdx\n");
         code.push_str("mov $0, %rax\n");
@@ -469,15 +382,15 @@ impl CodeGenerator {
 
     pub fn generate_shift(
         &self,
-        node: usize,
+        node_index: NodeIndex,
+        block: &Block,
         data: &BinaryOperationData,
-        ir_graph: &IRGraph,
         registers: &Registers,
         op_code: &str,
     ) -> String {
         let mut code = String::new();
-        let left_value = registers.get(ir_graph.get_node(data.left())).unwrap();
-        let right_value = registers.get(ir_graph.get_node(data.right())).unwrap();
+        let left_value = registers.get(block.get_node(data.lhs())).unwrap();
+        let right_value = registers.get(block.get_node(data.rhs())).unwrap();
         if !left_value.hardware_register() && !right_value.hardware_register() {
             code.push_str(&move_stack_variable(right_value));
             code.push_str(&format!(
@@ -494,7 +407,7 @@ impl CodeGenerator {
                 right_value.as_16_bit_assembly()
             ));
         }
-        let destination = registers.get(ir_graph.get_node(node)).unwrap();
+        let destination = registers.get(block.get_node(node_index)).unwrap();
         code.push_str(&format!(
             "movq {}, {}",
             left_value.as_assembly(),
@@ -505,18 +418,23 @@ impl CodeGenerator {
 
     pub fn generate_return(
         &self,
-        ir_graph: &IRGraph,
+        block: &Block,
         registers: &Registers,
         node_index: usize,
     ) -> String {
-        let return_node_index =
-            predecessor_skip_projection(node_index, RETURN_RESULT_INDEX, ir_graph);
+        debug!("Generating assembly for return");
+        let return_node_index = predecessor_skip_projection(node_index, 0, block);
+        debug!(
+            "Determined node {} that contains the return result",
+            return_node_index
+        );
+        debug!("Registers: {:?}", registers);
 
         let mut code = String::new();
         code.push_str("mov ");
         code.push_str(
             &registers
-                .get(ir_graph.get_node(return_node_index))
+                .get(block.get_node(return_node_index))
                 .unwrap()
                 .as_assembly(),
         );
@@ -531,11 +449,11 @@ impl CodeGenerator {
     pub fn generate_constant_int(
         &self,
         constant_data: &ConstantIntData,
-        ir_graph: &IRGraph,
+        block: &Block,
         registers: &Registers,
-        node_index: usize,
+        node_index: NodeIndex,
     ) -> String {
-        let register = registers.get(ir_graph.get_node(node_index)).unwrap();
+        let register = registers.get(block.get_node(node_index)).unwrap();
 
         let mut code = String::new();
         code.push_str("mov ");
@@ -547,15 +465,16 @@ impl CodeGenerator {
     }
 }
 
-fn predecessor_skip_projection(node: usize, predecessor_index: usize, graph: &IRGraph) -> usize {
-    let predecessor = graph
-        .get_predecessors(node)
+fn predecessor_skip_projection(node: usize, predecessor_index: usize, block: &Block) -> usize {
+    let predecessor = *block
+        .get_node(node)
+        .predecessors()
         .get(predecessor_index)
         .expect("Invalid predecessor index");
-    if let Node::Projection(data) = graph.get_node(*predecessor) {
+    if let Node::Projection(data) = block.get_node(predecessor) {
         data.input()
     } else {
-        *predecessor
+        predecessor
     }
 }
 
@@ -571,43 +490,18 @@ fn move_stack_variable(register: &Box<dyn Register>) -> String {
 
 fn calculate_jump_label(ir_graphs: &Vec<IRGraph>) -> HashMap<usize, String> {
     let mut jump_label = HashMap::new();
-    let mut visited = Vec::new();
-    let mut current_label = 0_usize;
     for ir_graph in ir_graphs {
-        calculate_jump_label_node(
-            &mut current_label,
-            ir_graph,
-            END_BLOCK,
-            &mut jump_label,
-            &mut visited,
-        );
+        for (block_index, block) in ir_graph.get_blocks().iter().enumerate() {
+            calculate_jump_label_block(block_index, block, &mut jump_label);
+        }
     }
     jump_label
 }
 
-fn calculate_jump_label_node<'a>(
-    current_label: &mut usize,
-    ir_graph: &IRGraph,
-    node_index: usize,
+fn calculate_jump_label_block<'a>(
+    block_index: BlockIndex,
+    _block: &Block,
     current: &mut HashMap<usize, String>,
-    visited: &mut Vec<usize>,
 ) {
-    let node = ir_graph.get_node(node_index);
-    for predecessor in node.predecessors() {
-        if !visited.contains(predecessor) {
-            visited.push(*predecessor);
-            calculate_jump_label_node(current_label, ir_graph, *predecessor, current, visited);
-        }
-    }
-    if node_index == END_BLOCK {
-        return;
-    }
-    match node {
-        Node::Block(_) => {
-            let block = ir_graph.get_node(node_index).block();
-            current.insert(block, format!("LC{}", current_label.to_string()));
-            *current_label += 1;
-        }
-        _ => {}
-    };
+    current.insert(block_index, format!("LC{}", block_index));
 }
