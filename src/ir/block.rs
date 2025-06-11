@@ -56,6 +56,10 @@ impl Block {
         label.push_str(&index.to_string());
         label
     }
+
+    pub fn empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
 }
 
 impl Display for Block {

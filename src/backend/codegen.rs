@@ -186,19 +186,6 @@ impl CodeGenerator {
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
             Node::Phi(data) => {
                 debug!("Warning! Phi present: Aliasing {:?}", data.operands());
-                let destination_register = registers.get(node).unwrap();
-                for (operand_block, operand_node) in data.operands() {
-                    let operand_block = ir_graph.get_block(operand_block);
-                    let operand_node = operand_block.get_node(operand_node);
-                    let register = registers
-                        .get(operand_node)
-                        .expect("Expected register for phi operand");
-                    code.push_str(&format!(
-                        "mov {}, {}\n",
-                        register.as_assembly(),
-                        destination_register.as_assembly()
-                    ));
-                }
             }
             Node::Jump => {
                 trace!(

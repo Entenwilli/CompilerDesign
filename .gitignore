@@ -3,3 +3,4 @@
 *.s
 *.o
 tests
+test.l2

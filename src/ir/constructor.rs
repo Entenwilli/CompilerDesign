@@ -45,7 +45,7 @@ impl IRGraphConstructor {
             current_side_effect: HashMap::new(),
             incomplete_side_effect_phis: HashMap::new(),
             // Start Block never gets more predecessors
-            sealed_blocks: vec![0],
+            sealed_blocks: vec![START_BLOCK],
             current_block_index: START_BLOCK,
         }
     }
@@ -67,15 +67,22 @@ impl IRGraphConstructor {
 
                 self.write_current_side_effect(side_effect_projection);
                 self.convert_boxed(body);
+                self.seal_block(self.current_block_index);
 
                 // The last statement after parsing the body can exit the function
-                let last_statement_index = self
-                    .graph
-                    .get_block(self.current_block_index)
-                    .get_last_node_index();
-                self.graph
-                    .end_block_mut()
-                    .register_entry_point(self.current_block_index, last_statement_index);
+                if !self.graph.get_block(self.current_block_index).empty() {
+                    let last_statement_index = self
+                        .graph
+                        .get_block(self.current_block_index)
+                        .get_last_node_index();
+                    self.graph
+                        .end_block_mut()
+                        .register_entry_point(self.current_block_index, last_statement_index);
+                } else {
+                    self.graph
+                        .end_block_mut()
+                        .register_entry_point(self.current_block_index, 0);
+                }
                 None
             }
             Tree::Assignment(lvalue, operator, expression) => match *lvalue {
@@ -290,13 +297,46 @@ impl IRGraphConstructor {
                     (false_block_index, false_expression),
                     (true_block_index, true_expression),
                 ]);
+                self.seal_block(self.current_block_index);
                 Some(phi)
             }
             Tree::While(_condition, _expression, _) => {
                 todo!("Implement while")
             }
-            Tree::If(_condition, _body, _else_body, _) => {
-                todo!("Implement if")
+            Tree::If(condition, body, else_body, _) => {
+                debug!("Generating IR for If");
+                let condition_node = self.convert_boxed(condition)?;
+                let conditional_jump = self.create_conditional_jump(condition_node);
+
+                let true_projection = self.create_true_projection(conditional_jump);
+                let false_projection = self.create_false_projection(conditional_jump);
+
+                let mut false_block = Block::new("if-false".to_string());
+                false_block.register_entry_point(self.current_block_index, false_projection);
+                let mut true_block = Block::new("if-true".to_string());
+                true_block.register_entry_point(self.current_block_index, true_projection);
+                self.seal_block(self.current_block_index);
+
+                let false_block_index = self.graph.register_block(false_block);
+                self.current_block_index = false_block_index;
+                if let Some(else_statements) = else_body {
+                    self.convert_boxed(else_statements);
+                }
+                let false_jump = self.create_jump();
+
+                let true_block_index = self.graph.register_block(true_block);
+                self.current_block_index = true_block_index;
+                self.convert_boxed(body);
+                let true_jump = self.create_jump();
+
+                let mut following_block = Block::new("if-following".to_string());
+                following_block.register_entry_point(false_block_index, false_jump);
+                following_block.register_entry_point(true_block_index, true_jump);
+                self.current_block_index = self.graph.register_block(following_block);
+                self.seal_block(false_block_index);
+                self.seal_block(true_block_index);
+                self.seal_block(self.current_block_index);
+                None
             }
             Tree::For(_option_initializer, _comparison, _option_postincrement, _statement, _) => {
                 todo!("Implement for")
@@ -511,6 +551,12 @@ impl IRGraphConstructor {
                 self.read_variable(variable.clone(), block_index),
             ));
         }
+        trace!(
+            "Created phi operands for block {} whilst reading {:?}: {:?}",
+            block_index,
+            variable,
+            operands
+        );
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Phi(PhiData::new(operands)))
     }
@@ -568,6 +614,11 @@ impl IRGraphConstructor {
     }
 
     fn read_variable_recursive(&mut self, variable: Name, block_index: BlockIndex) -> usize {
+        trace!(
+            "Reading variable {:?} recursively in block {}",
+            variable,
+            block_index
+        );
         let node = if !self.sealed_blocks.contains(&block_index) {
             let phi = self.create_phi();
             trace!("Writing incomplete phi: ({:?}, {})", variable, phi);
