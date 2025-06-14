@@ -248,7 +248,7 @@ impl CodeGenerator {
                     ir_graph,
                     data,
                     registers,
-                    "sall",
+                    "sal",
                 ));
             }
             Node::ShiftRight(data) => {
@@ -259,7 +259,7 @@ impl CodeGenerator {
                     ir_graph,
                     data,
                     registers,
-                    "sarl",
+                    "sar",
                 ));
             }
             Node::Equals(data)
@@ -488,22 +488,17 @@ impl CodeGenerator {
         let mut code = String::new();
         let left_value = registers.get(&data.lhs()).unwrap();
         let right_value = registers.get(&data.rhs()).unwrap();
-        if !left_value.hardware_register() && !right_value.hardware_register() {
-            code.push_str(&move_stack_variable(right_value));
-            code.push_str(&format!(
-                "{} {}, {}\n",
-                op_code,
-                left_value.as_assembly(),
-                HardwareRegister::Rbx.as_assembly_16_bit()
-            ));
-        } else {
-            code.push_str(&format!(
-                "{} {}, {}\n",
-                op_code,
-                left_value.as_assembly(),
-                right_value.as_16_bit_assembly()
-            ));
-        }
+        code.push_str(&format!(
+            "movq {}, {}\n",
+            right_value.as_assembly(),
+            HardwareRegister::Rcx.as_assembly()
+        ));
+        code.push_str(&format!(
+            "{} {}, {}\n",
+            op_code,
+            HardwareRegister::Rcx.as_8_bit_assembly(),
+            left_value.as_assembly()
+        ));
         let destination = registers.get(&(block_index, node_index)).unwrap();
         code.push_str(&format!(
             "movq {}, {}\n",

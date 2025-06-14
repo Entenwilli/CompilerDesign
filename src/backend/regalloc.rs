@@ -14,6 +14,7 @@ pub trait Register {
     fn as_assembly(&self) -> String;
     fn as_32_bit_assembly(&self) -> String;
     fn as_16_bit_assembly(&self) -> String;
+    fn as_8_bit_assembly(&self) -> String;
     fn hardware_register(&self) -> bool;
     fn box_clone(&self) -> Box<dyn Register>;
 }
@@ -93,6 +94,15 @@ impl HardwareRegister {
             HardwareRegister::R15 => "r15w".to_string(),
         }
     }
+
+    pub fn as_assembly_8_bit(&self) -> String {
+        match self {
+            HardwareRegister::Rax => "al".to_string(),
+            HardwareRegister::Rbx => "bl".to_string(),
+            HardwareRegister::Rcx => "cl".to_string(),
+            _ => panic!(),
+        }
+    }
 }
 
 impl Register for HardwareRegister {
@@ -109,6 +119,10 @@ impl Register for HardwareRegister {
 
     fn as_16_bit_assembly(&self) -> String {
         format!("%{}", self.as_assembly_16_bit())
+    }
+
+    fn as_8_bit_assembly(&self) -> String {
+        format!("%{}", self.as_assembly_8_bit())
     }
 
     fn box_clone(&self) -> Box<dyn Register> {
@@ -144,6 +158,10 @@ impl Register for StackRegister {
         self.as_assembly()
     }
 
+    fn as_8_bit_assembly(&self) -> String {
+        self.as_assembly()
+    }
+
     fn hardware_register(&self) -> bool {
         false
     }
@@ -176,7 +194,7 @@ impl RegisterAllocator {
             available_hardware_register: vec![
                 //HardwareRegister::Rax,
                 //HardwareRegister::Rbx,
-                HardwareRegister::Rcx,
+                //HardwareRegister::Rcx,
                 //HardwareRegister::Rdx,
                 HardwareRegister::Rsi,
                 HardwareRegister::Rdi,
