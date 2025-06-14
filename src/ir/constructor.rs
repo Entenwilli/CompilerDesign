@@ -14,7 +14,7 @@ use crate::{
     },
     lexer::token::{OperatorType, Token},
     parser::{ast::Tree, symbols::Name},
-    util::int_parsing::parse_int,
+    util::{int_parsing::parse_int, position},
 };
 
 use super::{
@@ -391,8 +391,48 @@ impl IRGraphConstructor {
                 self.seal_block(self.current_block_index);
                 None
             }
-            Tree::For(_option_initializer, _comparison, _option_postincrement, _statement, _) => {
-                todo!("Implement for")
+            Tree::For(option_initializer, comparison, option_postincrement, statement, _) => {
+                if let Some(initializer) = option_initializer {
+                    self.convert_boxed(initializer);
+                }
+
+                self.seal_block(self.current_block_index);
+                let condition_block = Block::new("for-condition".to_string());
+                let condition_block_index = self.graph.register_block(condition_block);
+                self.current_block_index = condition_block_index;
+                let condition_node = self.convert_boxed(comparison)?;
+                let conditional_jump = self.create_conditional_jump(condition_node);
+
+                let true_projection = self.create_true_projection(conditional_jump);
+                let false_projection = self.create_false_projection(conditional_jump);
+
+                let mut loop_body = Block::new("for-body".to_string());
+                loop_body.register_entry_point(condition_block_index, true_projection);
+                let loop_body_index = self.graph.register_block(loop_body);
+                self.seal_block(loop_body_index);
+                self.current_block_index = loop_body_index;
+                self.active_loops.push(condition_block_index);
+                self.convert_boxed(statement);
+                let loop_exit = self.create_jump();
+
+                let mut loop_postincrement = Block::new("for-post".to_string());
+                loop_postincrement.register_entry_point(loop_body_index, loop_exit);
+                let loop_postincrement_index = self.graph.register_block(loop_postincrement);
+                self.seal_block(loop_postincrement_index);
+                self.current_block_index = loop_postincrement_index;
+                if let Some(postincrement) = option_postincrement {
+                    self.convert_boxed(postincrement);
+                }
+                let loop_jump = self.create_jump();
+                self.graph
+                    .get_block_mut(condition_block_index)
+                    .register_entry_point(loop_postincrement_index, loop_jump);
+                self.seal_block(condition_block_index);
+
+                let mut following_block = Block::new("for-following".to_string());
+                following_block.register_entry_point(condition_block_index, false_projection);
+                self.current_block_index = self.graph.register_block(following_block);
+                None
             }
             #[allow(unreachable_patterns)]
             node => todo!("Unimplemented {:?}", node),
