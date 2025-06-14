@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use ast::Tree;
 use error::ParseError;
 use symbols::Name;
+use tracing::trace;
 use types::Type;
 
 use crate::lexer::token::{KeywordType, OperatorType, SeperatorType, Token, MAX_PRECEDENCE};
@@ -102,11 +103,20 @@ fn parse_statement(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 fn parse_control(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let keyword = tokens.front().unwrap();
     let expression = if keyword.is_keyword(&KeywordType::Return) {
-        parse_return(tokens)
+        let result = parse_return(tokens);
+        expect_seperator(tokens, SeperatorType::Semicolon)
+            .ok_or(ParseError::Error("Expected Semicolon".to_string()))?;
+        result
     } else if keyword.is_keyword(&KeywordType::Break) {
-        parse_break(tokens)
+        let result = parse_break(tokens);
+        expect_seperator(tokens, SeperatorType::Semicolon)
+            .ok_or(ParseError::Error("Expected Semicolon".to_string()))?;
+        result
     } else if keyword.is_keyword(&KeywordType::Continue) {
-        parse_continue(tokens)
+        let result = parse_continue(tokens);
+        expect_seperator(tokens, SeperatorType::Semicolon)
+            .ok_or(ParseError::Error("Expected Semicolon".to_string()))?;
+        result
     } else if keyword.is_keyword(&KeywordType::For) {
         parse_for(tokens)
     } else if keyword.is_keyword(&KeywordType::While) {
@@ -116,7 +126,8 @@ fn parse_control(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     } else {
         Err(ParseError::Error("Expected control keyword".to_string()))
     };
-    expect_seperator(tokens, SeperatorType::Semicolon);
+    trace!("Finished parsing control structure: {:?}", tokens);
+
     expression
 }
 
@@ -142,6 +153,7 @@ fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 }
 
 fn parse_return(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
+    trace!("Parsing return: {:?}", tokens);
     let return_keyword = expect_keyword(tokens, KeywordType::Return)
         .ok_or(ParseError::Error("Expected keyword".to_string()))?;
     let expression = parse_expression(tokens)?;

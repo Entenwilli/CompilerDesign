@@ -1,10 +1,14 @@
 use std::ops::{Range, RangeFrom};
 
 use token::{KeywordType, OperatorType, SeperatorType, Token};
+use tracing::trace;
 
 use crate::{
     parser::error::ParseError,
-    util::{position::Position, span::Span},
+    util::{
+        position::{self, Position},
+        span::Span,
+    },
 };
 
 pub mod token;
@@ -27,6 +31,10 @@ impl Lexer {
     }
 
     pub fn next_token(&mut self) -> Result<Token, ParseError> {
+        trace!(
+            "Reading next token: {}",
+            self.get_substring_from(self.position..)
+        );
         let whitespace = self.skip_whitespace();
         if whitespace.is_some() {
             return whitespace
