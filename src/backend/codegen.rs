@@ -262,15 +262,13 @@ impl CodeGenerator {
                     "sarl",
                 ));
             }
-            Node::Equals(data) => {
+            Node::Equals(data)
+            | Node::HigherEquals(data)
+            | Node::LowerEquals(data)
+            | Node::NotEquals(data)
+            | Node::Lower(data)
+            | Node::Higher(data) => {
                 code.push_str(&self.generate_comparison(block, data, registers));
-            }
-            Node::LowerEquals(data) => {
-                code.push_str(&self.generate_comparison(block, data, registers));
-            }
-            Node::Lower(data) => code.push_str(&self.generate_comparison(block, data, registers)),
-            Node::HigherEquals(data) => {
-                code.push_str(&self.generate_comparison(block, data, registers))
             }
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
             Node::Phi(data) => {
