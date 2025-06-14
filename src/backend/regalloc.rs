@@ -6,6 +6,7 @@ use std::{
 use tracing::debug;
 
 use crate::ir::{
+    block::NodeIndex,
     graph::{BlockIndex, IRGraph, END_BLOCK},
     node::Node,
 };
@@ -158,19 +159,20 @@ impl Display for StackRegister {
     }
 }
 
-pub struct RegisterAllocator<'a> {
+pub struct RegisterAllocator {
     current_stack_offset: usize,
-    registers: HashMap<&'a Node, Box<dyn Register>>,
-    aliased_nodes: Vec<&'a Node>,
+    registers: HashMap<(BlockIndex, NodeIndex), Box<dyn Register>>,
+    // Denotes that the key has been aliased by the value
+    aliased_nodes: HashMap<(BlockIndex, NodeIndex), (BlockIndex, NodeIndex)>,
     available_hardware_register: Vec<HardwareRegister>,
 }
 
-impl<'a> RegisterAllocator<'a> {
-    pub fn new() -> RegisterAllocator<'a> {
+impl RegisterAllocator {
+    pub fn new() -> RegisterAllocator {
         RegisterAllocator {
             current_stack_offset: 0,
             registers: HashMap::new(),
-            aliased_nodes: Vec::new(),
+            aliased_nodes: HashMap::new(),
             available_hardware_register: vec![
                 //HardwareRegister::Rax,
                 //HardwareRegister::Rbx,
@@ -192,8 +194,8 @@ impl<'a> RegisterAllocator<'a> {
 
     pub fn allocate_registers(
         mut self,
-        graph: &'a IRGraph,
-    ) -> (HashMap<&'a Node, Box<dyn Register>>, usize) {
+        graph: &IRGraph,
+    ) -> (HashMap<(BlockIndex, NodeIndex), Box<dyn Register>>, usize) {
         let mut visited = Vec::new();
         self.scan(END_BLOCK, graph, &mut visited);
         (self.registers, self.current_stack_offset)
@@ -202,7 +204,7 @@ impl<'a> RegisterAllocator<'a> {
     pub fn scan(
         &mut self,
         block_index: BlockIndex,
-        graph: &'a IRGraph,
+        graph: &IRGraph,
         visited: &mut Vec<BlockIndex>,
     ) {
         let block = graph.get_block(block_index);
@@ -213,23 +215,23 @@ impl<'a> RegisterAllocator<'a> {
             }
         }
         debug!("Scanning block {}, for register allocation", block);
-        for node in block.get_nodes() {
+        for (node_index, node) in block.get_nodes().iter().enumerate() {
             if needs_register(node) {
-                let register = self.get_available_register(node, graph);
-                self.registers.insert(node, register);
+                let register = self.get_available_register((block_index, node_index), graph);
+                self.registers.insert((block_index, node_index), register);
             }
         }
     }
 
     pub fn get_available_register(
         &mut self,
-        node: &Node,
-        ir_graph: &'a IRGraph,
+        node: (BlockIndex, NodeIndex),
+        ir_graph: &IRGraph,
     ) -> Box<dyn Register> {
-        if self.aliased_nodes.contains(&node) {
+        if self.aliased_nodes.contains_key(&node) {
             debug!("Not generating new register for node that is aliased by a following phi!");
         }
-        debug!("Allocating new register for: {}", node);
+        debug!("Allocating new register for: {}", ir_graph.get_node(node));
         if self.has_available_hardware_register() {
             let register = self.available_hardware_register.pop().unwrap();
             let register: Box<dyn Register> = Box::new(register);
@@ -246,19 +248,30 @@ impl<'a> RegisterAllocator<'a> {
 
     pub fn handle_phi_register(
         &mut self,
-        node: &Node,
-        ir_graph: &'a IRGraph,
+        node_index: (BlockIndex, NodeIndex),
+        ir_graph: &IRGraph,
         register: &Box<dyn Register>,
     ) {
+        let node = ir_graph.get_node(node_index);
         if let Node::Phi(data) = node {
             debug!("Handling phi in register allocation: Aliasing the following nodes to store in the same node: {:?}", data.operands());
             for (predecessor_block, predecessor_index) in data.operands() {
-                let predecessor_node = ir_graph
-                    .get_block(predecessor_block)
-                    .get_node(predecessor_index);
+                if self
+                    .aliased_nodes
+                    .contains_key(&(predecessor_block, predecessor_index))
+                {
+                    self.registers.insert(
+                        *self
+                            .aliased_nodes
+                            .get(&(predecessor_block, predecessor_index))
+                            .unwrap(),
+                        register.box_clone(),
+                    );
+                }
                 self.registers
-                    .insert(predecessor_node, register.box_clone());
-                self.aliased_nodes.push(predecessor_node);
+                    .insert((predecessor_block, predecessor_index), register.box_clone());
+                self.aliased_nodes
+                    .insert((predecessor_block, predecessor_index), node_index);
             }
         }
     }
@@ -279,10 +292,17 @@ impl Clone for Box<dyn Register> {
 }
 
 fn needs_register(node: &Node) -> bool {
-    !matches!(node, Node::Projection(_) | Node::Return(_))
+    !matches!(
+        node,
+        Node::Projection(_)
+            | Node::Return(_)
+            | Node::LowerEquals(_)
+            | Node::Equals(_)
+            | Node::ConditionalJump(_)
+    )
 }
 
-impl Default for RegisterAllocator<'_> {
+impl Default for RegisterAllocator {
     fn default() -> Self {
         Self::new()
     }

@@ -395,10 +395,10 @@ impl Lexer {
         }
 
         if self.peek_pos(1)?.ne(&shift) {
-            if self.peek_pos(1)?.ne(&'=') {
+            if self.peek_pos(1)?.eq(&'=') {
                 return Some(Token::Operator(self.build_span(2), comparison_equal_type));
             } else {
-                return None;
+                return Some(Token::Operator(self.build_span(1), comparison_type));
             }
         }
         if self.has_more(2) && self.peek_pos(2)?.eq(&'=') {

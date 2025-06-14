@@ -42,10 +42,10 @@ impl Node {
     pub fn predecessors(&self) -> Vec<usize> {
         match self {
             Node::Jump | Node::ConstantBool(_) | Node::ConstantInt(_) => vec![],
-            Node::Projection(data) => vec![data.input()],
+            Node::Projection(data) => vec![data.input().1],
             Node::Phi(_data) => todo!("What to return?"),
-            Node::Return(data) => vec![data.input()],
-            Node::ConditionalJump(data) | Node::BitwiseNegate(data) => vec![data.input()],
+            Node::Return(data) => vec![data.input().1],
+            Node::ConditionalJump(data) | Node::BitwiseNegate(data) => vec![data.input().1],
             Node::Add(data)
             | Node::Division(data)
             | Node::ShiftRight(data)
@@ -61,7 +61,7 @@ impl Node {
             | Node::Xor(data)
             | Node::Or(data)
             | Node::Subtraction(data)
-            | Node::ShiftLeft(data) => vec![data.lhs(), data.rhs()],
+            | Node::ShiftLeft(data) => vec![data.lhs().1, data.rhs().1],
         }
     }
 }
@@ -96,7 +96,7 @@ impl ConstantBoolData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct PhiData {
     operands: Vec<(BlockIndex, NodeIndex)>,
 }
@@ -111,7 +111,10 @@ impl PhiData {
     }
 
     pub fn add_operand(&mut self, operand: (BlockIndex, NodeIndex)) {
-        self.operands.push(operand);
+        match self.operands.binary_search(&operand) {
+            Ok(_) => {}
+            Err(pos) => self.operands.insert(pos, operand),
+        }
     }
 
     pub fn operands(&self) -> Vec<(BlockIndex, NodeIndex)> {
@@ -121,15 +124,15 @@ impl PhiData {
 
 #[derive(Eq, Hash, PartialEq, Debug)]
 pub struct ReturnData {
-    input: usize,
+    input: (BlockIndex, NodeIndex),
 }
 
 impl ReturnData {
-    pub fn new(input: NodeIndex) -> ReturnData {
+    pub fn new(input: (BlockIndex, NodeIndex)) -> ReturnData {
         ReturnData { input }
     }
 
-    pub fn input(&self) -> NodeIndex {
+    pub fn input(&self) -> (BlockIndex, NodeIndex) {
         self.input
     }
 }

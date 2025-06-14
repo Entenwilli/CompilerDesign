@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
-use super::block::Block;
+use super::{
+    block::{Block, NodeIndex},
+    node::Node,
+};
 
 pub type BlockIndex = usize;
 
@@ -40,6 +43,13 @@ impl IRGraph {
         self.blocks
             .get(block_index)
             .expect("Expected block at block index")
+    }
+
+    pub fn get_node(&self, data: (BlockIndex, NodeIndex)) -> &Node {
+        self.blocks
+            .get(data.0)
+            .expect("Expected block at block index")
+            .get_node(data.1)
     }
 
     pub fn get_block_mut(&mut self, block_index: BlockIndex) -> &mut Block {

@@ -1,4 +1,4 @@
-use crate::ir::block::NodeIndex;
+use crate::ir::{block::NodeIndex, graph::BlockIndex};
 
 #[derive(Eq, Hash, PartialEq, Debug)]
 pub enum ProjectionInformation {
@@ -10,19 +10,22 @@ pub enum ProjectionInformation {
 
 #[derive(Eq, Hash, PartialEq, Debug)]
 pub struct ProjectionData {
-    input: usize,
+    input: (BlockIndex, NodeIndex),
     projection_information: ProjectionInformation,
 }
 
 impl ProjectionData {
-    pub fn new(input: NodeIndex, projection_information: ProjectionInformation) -> ProjectionData {
+    pub fn new(
+        input: (BlockIndex, NodeIndex),
+        projection_information: ProjectionInformation,
+    ) -> ProjectionData {
         ProjectionData {
             input,
             projection_information,
         }
     }
 
-    pub fn input(&self) -> NodeIndex {
+    pub fn input(&self) -> (BlockIndex, NodeIndex) {
         self.input
     }
 

@@ -1,7 +1,7 @@
 use core::panic;
 use std::collections::HashMap;
 
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::{
     ir::{
@@ -28,12 +28,13 @@ use super::{
 
 pub struct IRGraphConstructor {
     graph: IRGraph,
-    current_definitions: HashMap<Name, HashMap<usize, usize>>,
-    incomplete_phis: HashMap<usize, HashMap<Name, usize>>,
+    current_definitions: HashMap<Name, HashMap<BlockIndex, NodeIndex>>,
+    incomplete_phis: HashMap<BlockIndex, HashMap<Name, NodeIndex>>,
     current_side_effect: HashMap<usize, usize>,
     incomplete_side_effect_phis: HashMap<usize, usize>,
     sealed_blocks: Vec<usize>,
     current_block_index: BlockIndex,
+    active_loops: Vec<BlockIndex>,
 }
 
 impl IRGraphConstructor {
@@ -47,10 +48,11 @@ impl IRGraphConstructor {
             // Start Block never gets more predecessors
             sealed_blocks: vec![START_BLOCK],
             current_block_index: START_BLOCK,
+            active_loops: Vec::new(),
         }
     }
 
-    pub fn convert(&mut self, tree: Tree) -> Option<usize> {
+    pub fn convert(&mut self, tree: Tree) -> Option<(BlockIndex, NodeIndex)> {
         debug!("Converting AST {} to IR!", tree);
         match tree {
             Tree::Program(_) => {
@@ -61,7 +63,7 @@ impl IRGraphConstructor {
                 // Function body can be entered from start function block
                 function_body_block.register_entry_point(START_BLOCK, 0);
                 let side_effect_projection = function_body_block.register_node(Node::Projection(
-                    ProjectionData::new(0, ProjectionInformation::SideEffect),
+                    ProjectionData::new((0, 0), ProjectionInformation::SideEffect),
                 ));
                 self.current_block_index = self.graph.register_block(function_body_block);
 
@@ -113,18 +115,22 @@ impl IRGraphConstructor {
                                     let lhs =
                                         self.read_variable(name.clone(), self.current_block_index);
                                     let div = self.create_div(lhs, rhs);
-                                    let desugar = self.create_div_mod_projection(div);
+                                    let desugar = self
+                                        .create_div_mod_projection((self.current_block_index, div));
                                     self.write_variable(name, self.current_block_index, desugar);
                                 }
                                 OperatorType::AssignMod => {
                                     let lhs =
                                         self.read_variable(name.clone(), self.current_block_index);
                                     let mod_node = self.create_mod(lhs, rhs);
-                                    let desugar = self.create_div_mod_projection(mod_node);
+                                    let desugar = self.create_div_mod_projection((
+                                        self.current_block_index,
+                                        mod_node,
+                                    ));
                                     self.write_variable(name, self.current_block_index, desugar);
                                 }
                                 OperatorType::Assign => {
-                                    self.write_variable(name, self.current_block_index, rhs);
+                                    self.write_variable(name, rhs.0, rhs.1);
                                 }
                                 _ => panic!("Assignment has no assignment operator"),
                             };
@@ -144,11 +150,11 @@ impl IRGraphConstructor {
                     OperatorType::Mul => self.create_mul(lhs_node, rhs_node),
                     OperatorType::Div => {
                         let div_node = self.create_div(lhs_node, rhs_node);
-                        self.create_div_mod_projection(div_node)
+                        self.create_div_mod_projection((self.current_block_index, div_node))
                     }
                     OperatorType::Mod => {
                         let mod_node = self.create_mod(lhs_node, rhs_node);
-                        self.create_div_mod_projection(mod_node)
+                        self.create_div_mod_projection((self.current_block_index, mod_node))
                     }
                     OperatorType::ShiftLeft => self.create_shift_left(lhs_node, rhs_node),
                     OperatorType::ShiftRight => self.create_shift_right(lhs_node, rhs_node),
@@ -184,7 +190,7 @@ impl IRGraphConstructor {
                         panic!("Expected binary operator, got ternary operator!")
                     }
                 };
-                Some(result)
+                Some((self.current_block_index, result))
             }
             Tree::Block(statements, _) => {
                 for statement in statements {
@@ -200,7 +206,7 @@ impl IRGraphConstructor {
                 if let Tree::Name(name, _) = *identifier {
                     if initializer.is_some() {
                         let rhs = self.convert_boxed(initializer.unwrap()).unwrap();
-                        self.write_variable(name, self.current_block_index, rhs);
+                        self.write_variable(name, rhs.0, rhs.1);
                     }
                     None
                 } else {
@@ -218,7 +224,7 @@ impl IRGraphConstructor {
             Tree::Literal(constant, base, _) => {
                 let value = parse_int(constant, base)?;
                 let node = self.create_constant_int(value);
-                Some(node)
+                Some((self.current_block_index, node))
             }
             Tree::LValueIdentifier(_) => None,
             Tree::Name(_, _) => None,
@@ -226,18 +232,18 @@ impl IRGraphConstructor {
                 OperatorType::Minus => {
                     let node = self.convert_boxed(expression)?;
                     let zero = self.create_constant_int(0);
-                    let result = self.create_sub(zero, node);
-                    Some(result)
+                    let result = self.create_sub((self.current_block_index, zero), node);
+                    Some((self.current_block_index, result))
                 }
                 OperatorType::BitwiseNot => {
                     let node = self.convert_boxed(expression)?;
                     let result = self.create_bitwise_not(node);
-                    Some(result)
+                    Some((self.current_block_index, result))
                 }
                 OperatorType::LogicalNot => {
                     let node = self.convert_boxed(expression)?;
                     let result = self.create_bitwise_not(node);
-                    Some(result)
+                    Some((self.current_block_index, result))
                 }
                 _ => panic!("Unregistered Unary Operation {:?}", operator_type),
             },
@@ -253,15 +259,29 @@ impl IRGraphConstructor {
                 } else {
                     self.create_constant_bool(false)
                 };
-                Some(node)
+                Some((self.current_block_index, node))
             }
             Tree::Break(_) => {
-                // Jump to after loop
-                todo!("Create unconditional jump with correct target");
+                debug!(
+                    "Generating IR for break statement with active loops: {:?}",
+                    self.active_loops
+                );
+                let jump = self.create_jump();
+                self.graph
+                    .get_block_mut(*self.active_loops.first().unwrap())
+                    .register_entry_point(self.current_block_index, jump);
+                None
             }
             Tree::Continue(_) => {
-                // Jump to post condition of loop
-                todo!("Create unconditional jump with correct target");
+                debug!(
+                    "Generating IR for continue statement with active loops: {:?}",
+                    self.active_loops
+                );
+                let jump = self.create_jump();
+                self.graph
+                    .get_block_mut(*self.active_loops.first().unwrap())
+                    .register_entry_point(self.current_block_index, jump);
+                None
             }
             Tree::TernaryOperation(expression, true_value, false_value) => {
                 debug!("Generating IR for TernaryOperation");
@@ -293,15 +313,48 @@ impl IRGraphConstructor {
                 self.current_block_index = self.graph.register_block(following_block);
                 self.seal_block(true_block_index);
                 self.seal_block(false_block_index);
-                let phi = self.create_phi_from_operands(vec![
-                    (false_block_index, false_expression),
-                    (true_block_index, true_expression),
-                ]);
+                let phi = self.create_phi_from_operands(vec![false_expression, true_expression]);
                 self.seal_block(self.current_block_index);
-                Some(phi)
+                Some((self.current_block_index, phi))
             }
-            Tree::While(_condition, _expression, _) => {
-                todo!("Implement while")
+            Tree::While(condition, expression, _) => {
+                debug!("Generating IR for while");
+                let inverted_entry_condition_node =
+                    self.create_inverted_condition(condition.clone());
+                let entry_conditional_jump = self.create_conditional_jump((
+                    self.current_block_index,
+                    inverted_entry_condition_node,
+                ));
+
+                let entry_true_projection = self.create_true_projection(entry_conditional_jump);
+                let entry_false_projection = self.create_false_projection(entry_conditional_jump);
+
+                let mut loop_body = Block::new("while-body".to_string());
+                loop_body.register_entry_point(self.current_block_index, entry_false_projection);
+                let mut following_block = Block::new("while-following".to_string());
+                following_block
+                    .register_entry_point(self.current_block_index, entry_true_projection);
+                self.seal_block(self.current_block_index);
+
+                let loop_body_index = self.graph.register_block(loop_body);
+                self.current_block_index = loop_body_index;
+                self.convert_boxed(expression);
+
+                let condition_node = self.convert_boxed(condition)?;
+                let conditional_jump = self.create_conditional_jump(condition_node);
+
+                let true_projection = self.create_true_projection(conditional_jump);
+                let false_projection = self.create_false_projection(conditional_jump);
+
+                self.graph
+                    .get_block_mut(loop_body_index)
+                    .register_entry_point(loop_body_index, true_projection);
+
+                following_block.register_entry_point(loop_body_index, false_projection);
+                self.seal_block(loop_body_index);
+                self.current_block_index = self.graph.register_block(following_block);
+                self.seal_block(self.current_block_index);
+                None
             }
             Tree::If(condition, body, else_body, _) => {
                 debug!("Generating IR for If");
@@ -346,11 +399,11 @@ impl IRGraphConstructor {
         }
     }
 
-    pub fn convert_boxed(&mut self, tree: Box<Tree>) -> Option<usize> {
+    pub fn convert_boxed(&mut self, tree: Box<Tree>) -> Option<(BlockIndex, NodeIndex)> {
         self.convert(*tree)
     }
 
-    pub fn create_conditional_jump(&mut self, condition: NodeIndex) -> NodeIndex {
+    pub fn create_conditional_jump(&mut self, condition: (BlockIndex, NodeIndex)) -> NodeIndex {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::ConditionalJump(UnaryOperationData::new(condition)))
     }
@@ -371,22 +424,83 @@ impl IRGraphConstructor {
         current_block.register_node(Node::Jump)
     }
 
-    fn create_add(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_add(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Add(BinaryOperationData::new(lhs, rhs)))
     }
 
-    fn create_sub(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_inverted_condition(&mut self, condition: Box<Tree>) -> NodeIndex {
+        if let Tree::BinaryOperation(lhs, rhs, operator) = *condition {
+            let left_node = self.convert_boxed(lhs).unwrap();
+            let right_node = self.convert_boxed(rhs).unwrap();
+            let current_block = self.graph.get_block_mut(self.current_block_index);
+            match operator {
+                OperatorType::TernaryColon
+                | OperatorType::Mul
+                | OperatorType::Div
+                | OperatorType::Mod
+                | OperatorType::Plus
+                | OperatorType::Assign
+                | OperatorType::AssignMul
+                | OperatorType::AssignDiv
+                | OperatorType::AssignMod
+                | OperatorType::ShiftLeft
+                | OperatorType::BitwiseOr
+                | OperatorType::LogicalOr
+                | OperatorType::AssignPlus
+                | OperatorType::LogicalNot
+                | OperatorType::BitwiseNot
+                | OperatorType::ShiftRight
+                | OperatorType::BitwiseAnd
+                | OperatorType::BitwiseXor
+                | OperatorType::Minus => panic!("Invalid operator for condition!"),
+                OperatorType::Lower => current_block.register_node(Node::HigherEquals(
+                    BinaryOperationData::new(left_node, right_node),
+                )),
+                OperatorType::Higher => current_block.register_node(Node::LowerEquals(
+                    BinaryOperationData::new(left_node, right_node),
+                )),
+                OperatorType::Equals => current_block.register_node(Node::NotEquals(
+                    BinaryOperationData::new(left_node, right_node),
+                )),
+                OperatorType::NotEquals => current_block.register_node(Node::Equals(
+                    BinaryOperationData::new(left_node, right_node),
+                )),
+                OperatorType::LogicalAnd => todo!(),
+                _ => panic!(),
+            }
+        } else {
+            panic!()
+        }
+    }
+
+    fn create_sub(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Subtraction(BinaryOperationData::new(lhs, rhs)))
     }
 
-    fn create_mul(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_mul(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Multiplication(BinaryOperationData::new(lhs, rhs)))
     }
 
-    fn create_div(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_div(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Division(BinaryOperationData::new_with_sideeffect(
@@ -394,7 +508,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_mod(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_mod(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Modulo(BinaryOperationData::new_with_sideeffect(
@@ -402,7 +520,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_shift_left(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_shift_left(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::ShiftLeft(BinaryOperationData::new_with_sideeffect(
@@ -410,7 +532,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_shift_right(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_shift_right(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::ShiftRight(BinaryOperationData::new_with_sideeffect(
@@ -418,7 +544,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_lower(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_lower(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Lower(BinaryOperationData::new_with_sideeffect(
@@ -426,7 +556,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_lower_equals(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_lower_equals(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::LowerEquals(BinaryOperationData::new_with_sideeffect(
@@ -434,7 +568,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_equals(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_equals(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Equals(BinaryOperationData::new_with_sideeffect(
@@ -442,7 +580,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_not_equals(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_not_equals(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Lower(BinaryOperationData::new_with_sideeffect(
@@ -450,7 +592,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_higher_equals(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_higher_equals(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::HigherEquals(
@@ -458,7 +604,11 @@ impl IRGraphConstructor {
         ))
     }
 
-    fn create_higher(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_higher(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Higher(BinaryOperationData::new_with_sideeffect(
@@ -466,7 +616,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_or(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_or(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Or(BinaryOperationData::new_with_sideeffect(
@@ -474,7 +628,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_and(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_and(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::And(BinaryOperationData::new_with_sideeffect(
@@ -482,7 +640,11 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_xor(&mut self, lhs: NodeIndex, rhs: NodeIndex) -> NodeIndex {
+    fn create_xor(
+        &mut self,
+        lhs: (BlockIndex, NodeIndex),
+        rhs: (BlockIndex, NodeIndex),
+    ) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Xor(BinaryOperationData::new_with_sideeffect(
@@ -490,7 +652,7 @@ impl IRGraphConstructor {
         )))
     }
 
-    fn create_bitwise_not(&mut self, node: NodeIndex) -> NodeIndex {
+    fn create_bitwise_not(&mut self, node: (BlockIndex, NodeIndex)) -> NodeIndex {
         let sideeffect = self.read_current_side_effect();
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::BitwiseNegate(
@@ -508,7 +670,7 @@ impl IRGraphConstructor {
         current_block.register_node(Node::ConstantBool(ConstantBoolData::new(value)))
     }
 
-    fn create_return(&mut self, input: NodeIndex) -> NodeIndex {
+    fn create_return(&mut self, input: (BlockIndex, NodeIndex)) -> NodeIndex {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         let return_node_index = current_block.register_node(Node::Return(ReturnData::new(input)));
         self.graph
@@ -546,10 +708,7 @@ impl IRGraphConstructor {
     ) -> NodeIndex {
         let mut operands = Vec::new();
         for (block_index, _) in self.graph.get_block(block_index).entry_points().clone() {
-            operands.push((
-                block_index,
-                self.read_variable(variable.clone(), block_index),
-            ));
+            operands.push(self.read_variable(variable.clone(), block_index));
         }
         trace!(
             "Created phi operands for block {} whilst reading {:?}: {:?}",
@@ -561,7 +720,7 @@ impl IRGraphConstructor {
         current_block.register_node(Node::Phi(PhiData::new(operands)))
     }
 
-    fn create_div_mod_projection(&mut self, input: NodeIndex) -> NodeIndex {
+    fn create_div_mod_projection(&mut self, input: (BlockIndex, NodeIndex)) -> NodeIndex {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         let projection_side_effect = current_block.register_node(Node::Projection(
             ProjectionData::new(input, ProjectionInformation::SideEffect),
@@ -590,8 +749,12 @@ impl IRGraphConstructor {
         }
     }
 
-    fn read_variable(&mut self, variable: Name, block: usize) -> usize {
-        trace!("Trying to read from variable {:?}", variable);
+    fn read_variable(&mut self, variable: Name, block: BlockIndex) -> (BlockIndex, NodeIndex) {
+        trace!(
+            "Trying to read from variable {:?} in block {}",
+            variable,
+            block
+        );
         if self.current_definitions.contains_key(&variable) {
             if self
                 .current_definitions
@@ -599,12 +762,16 @@ impl IRGraphConstructor {
                 .unwrap()
                 .contains_key(&block)
             {
-                *self
-                    .current_definitions
-                    .get(&variable)
-                    .unwrap()
-                    .get(&block)
-                    .unwrap()
+                trace!("Variable defined in the same block! Returning value");
+                (
+                    block,
+                    *self
+                        .current_definitions
+                        .get(&variable)
+                        .unwrap()
+                        .get(&block)
+                        .unwrap(),
+                )
             } else {
                 self.read_variable_recursive(variable, block)
             }
@@ -613,26 +780,29 @@ impl IRGraphConstructor {
         }
     }
 
-    fn read_variable_recursive(&mut self, variable: Name, block_index: BlockIndex) -> usize {
+    fn read_variable_recursive(
+        &mut self,
+        variable: Name,
+        block_index: BlockIndex,
+    ) -> (BlockIndex, NodeIndex) {
         trace!(
             "Reading variable {:?} recursively in block {}",
             variable,
             block_index
         );
+        trace!("Sealed blocks: {:?}", self.sealed_blocks);
         let node = if !self.sealed_blocks.contains(&block_index) {
             let phi = self.create_phi();
             trace!("Writing incomplete phi: ({:?}, {})", variable, phi);
-            if let std::collections::hash_map::Entry::Vacant(e) =
-                self.incomplete_phis.entry(block_index)
-            {
-                e.insert(HashMap::from([(variable.clone(), phi)]));
+            if self.incomplete_phis.contains_key(&block_index) {
+                let mut entry = self.incomplete_phis.get_mut(&block_index).unwrap().clone();
+                entry.insert(variable.clone(), phi);
+                self.incomplete_phis.insert(block_index, entry);
             } else {
                 self.incomplete_phis
-                    .get_mut(&block_index)
-                    .unwrap()
-                    .insert(variable.clone(), phi);
-            }
-            phi
+                    .insert(block_index, HashMap::from([(variable.clone(), phi)]));
+            };
+            (block_index, phi)
         } else if self.graph.get_block(block_index).entry_points().len() == 1 {
             let (previous_block, _) = self
                 .graph
@@ -645,37 +815,34 @@ impl IRGraphConstructor {
         } else {
             let phi = self.create_phi_variable_operands(block_index, variable.clone());
             self.write_variable(variable.clone(), block_index, phi);
-            phi
+            (block_index, phi)
         };
-        self.write_variable(variable.clone(), block_index, node);
+        self.write_variable(variable.clone(), node.0, node.1);
         node
     }
 
     fn seal_block(&mut self, block: BlockIndex) {
         trace!("Current graph before sealing block: {}", self.graph);
-        trace!("Incomplete Phis: {:?}", self.incomplete_phis);
+        info!("Incomplete Phis: {:?}", self.incomplete_phis);
         if !self.incomplete_phis.contains_key(&block) {
             self.sealed_blocks.push(block);
             return;
         }
-        for (variable, index) in self.incomplete_phis.get(&block).unwrap().clone() {
-            let operands = {
-                let mut operands = Vec::new();
-                let block = self.graph.get_block_mut(block);
-                if let Node::Phi(data) = block.get_node_mut(index) {
-                    for (block_index, _) in data.operands() {
-                        operands.push((
-                            block_index,
-                            self.read_variable(variable.clone(), block_index),
-                        ));
+        for (block_index, definitions) in &self.incomplete_phis.clone() {
+            for (variable, phi) in definitions {
+                let operands = {
+                    let mut operands = Vec::new();
+                    let block = self.graph.get_block_mut(*block_index);
+                    for (prev_block, _) in block.entry_points().clone() {
+                        operands.push(self.read_variable(variable.clone(), prev_block));
                     }
-                }
-                operands
-            };
-            let block = self.graph.get_block_mut(block);
-            if let Node::Phi(data) = block.get_node_mut(index) {
-                for operand in operands {
-                    data.add_operand(operand);
+                    operands
+                };
+                let block = self.graph.get_block_mut(*block_index);
+                if let Node::Phi(data) = block.get_node_mut(*phi) {
+                    for operand in operands {
+                        data.add_operand(operand);
+                    }
                 }
             }
         }
@@ -735,7 +902,7 @@ impl IRGraphConstructor {
     pub fn create_true_projection(&mut self, conditional_jump: NodeIndex) -> NodeIndex {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Projection(ProjectionData::new(
-            conditional_jump,
+            (self.current_block_index, conditional_jump),
             ProjectionInformation::IfTrue,
         )))
     }
@@ -743,7 +910,7 @@ impl IRGraphConstructor {
     pub fn create_false_projection(&mut self, conditional_jump: NodeIndex) -> NodeIndex {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Projection(ProjectionData::new(
-            conditional_jump,
+            (self.current_block_index, conditional_jump),
             ProjectionInformation::IfFalse,
         )))
     }
