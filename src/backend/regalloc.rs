@@ -299,6 +299,7 @@ fn needs_register(node: &Node) -> bool {
             | Node::LowerEquals(_)
             | Node::Equals(_)
             | Node::ConditionalJump(_)
+            | Node::Jump
     )
 }
 

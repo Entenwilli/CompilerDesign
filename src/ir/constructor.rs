@@ -5,7 +5,7 @@ use tracing::{debug, info, trace};
 
 use crate::{
     ir::{
-        block::Block,
+        block::{self, Block},
         graph::START_BLOCK,
         node::{
             binary_operation::BinaryOperationData,
@@ -391,47 +391,58 @@ impl IRGraphConstructor {
                 self.seal_block(self.current_block_index);
                 None
             }
-            Tree::For(option_initializer, comparison, option_postincrement, statement, _) => {
+            Tree::For(option_initializer, condition, option_postincrement, expression, _) => {
+                debug!("Generating IR for for expression");
                 if let Some(initializer) = option_initializer {
                     self.convert_boxed(initializer);
                 }
+                let inverted_entry_condition_node =
+                    self.create_inverted_condition(condition.clone());
+                let entry_conditional_jump = self.create_conditional_jump((
+                    self.current_block_index,
+                    inverted_entry_condition_node,
+                ));
 
+                let entry_true_projection = self.create_true_projection(entry_conditional_jump);
+                let entry_false_projection = self.create_false_projection(entry_conditional_jump);
+
+                let mut loop_body = Block::new("for-body".to_string());
+                loop_body.register_entry_point(self.current_block_index, entry_false_projection);
+                let mut following_block = Block::new("for-following".to_string());
+                following_block
+                    .register_entry_point(self.current_block_index, entry_true_projection);
                 self.seal_block(self.current_block_index);
-                let condition_block = Block::new("for-condition".to_string());
-                let condition_block_index = self.graph.register_block(condition_block);
-                self.current_block_index = condition_block_index;
-                let condition_node = self.convert_boxed(comparison)?;
+
+                let loop_body_index = self.graph.register_block(loop_body);
+                self.current_block_index = loop_body_index;
+                self.convert_boxed(expression);
+                let loop_body_exit = self.create_jump();
+
+                let mut loop_post = Block::new("for-post".to_string());
+                loop_post.register_entry_point(loop_body_index, loop_body_exit);
+                let loop_post_index = self.graph.register_block(loop_post);
+                self.current_block_index = loop_post_index;
+                self.seal_block(loop_post_index);
+
+                if let Some(postincrement) = option_postincrement {
+                    self.convert_boxed(postincrement);
+                }
+
+                let condition_node = self.convert_boxed(condition)?;
                 let conditional_jump = self.create_conditional_jump(condition_node);
 
                 let true_projection = self.create_true_projection(conditional_jump);
                 let false_projection = self.create_false_projection(conditional_jump);
 
-                let mut loop_body = Block::new("for-body".to_string());
-                loop_body.register_entry_point(condition_block_index, true_projection);
-                let loop_body_index = self.graph.register_block(loop_body);
-                self.seal_block(loop_body_index);
-                self.current_block_index = loop_body_index;
-                self.active_loops.push(condition_block_index);
-                self.convert_boxed(statement);
-                let loop_exit = self.create_jump();
-
-                let mut loop_postincrement = Block::new("for-post".to_string());
-                loop_postincrement.register_entry_point(loop_body_index, loop_exit);
-                let loop_postincrement_index = self.graph.register_block(loop_postincrement);
-                self.seal_block(loop_postincrement_index);
-                self.current_block_index = loop_postincrement_index;
-                if let Some(postincrement) = option_postincrement {
-                    self.convert_boxed(postincrement);
-                }
-                let loop_jump = self.create_jump();
                 self.graph
-                    .get_block_mut(condition_block_index)
-                    .register_entry_point(loop_postincrement_index, loop_jump);
-                self.seal_block(condition_block_index);
+                    .get_block_mut(loop_body_index)
+                    .register_entry_point(loop_post_index, true_projection);
 
-                let mut following_block = Block::new("for-following".to_string());
-                following_block.register_entry_point(condition_block_index, false_projection);
+                following_block.register_entry_point(loop_post_index, false_projection);
+                self.seal_block(loop_body_index);
                 self.current_block_index = self.graph.register_block(following_block);
+                self.seal_block(self.current_block_index);
+                debug!("Following block after for: {}", self.current_block_index);
                 None
             }
             #[allow(unreachable_patterns)]
@@ -756,7 +767,7 @@ impl IRGraphConstructor {
             variable,
             operands
         );
-        let current_block = self.graph.get_block_mut(self.current_block_index);
+        let current_block = self.graph.get_block_mut(block_index);
         current_block.register_node(Node::Phi(PhiData::new(operands)))
     }
 
@@ -832,7 +843,10 @@ impl IRGraphConstructor {
         );
         trace!("Sealed blocks: {:?}", self.sealed_blocks);
         let node = if !self.sealed_blocks.contains(&block_index) {
-            let phi = self.create_phi();
+            let phi = self
+                .graph
+                .get_block_mut(block_index)
+                .register_node(Node::Phi(PhiData::empty()));
             trace!("Writing incomplete phi: ({:?}, {})", variable, phi);
             if self.incomplete_phis.contains_key(&block_index) {
                 let mut entry = self.incomplete_phis.get_mut(&block_index).unwrap().clone();
