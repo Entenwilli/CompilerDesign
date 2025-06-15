@@ -11,6 +11,7 @@ use crate::{
 pub struct AnalysisState {
     return_state: ReturnState,
     namespace: HashMap<Name, VariableStatus>,
+    active_loops: usize,
 }
 
 impl Default for AnalysisState {
@@ -18,7 +19,22 @@ impl Default for AnalysisState {
         AnalysisState {
             return_state: ReturnState::NotReturing,
             namespace: HashMap::new(),
+            active_loops: 0,
         }
+    }
+}
+
+impl AnalysisState {
+    pub fn enter_loop(&mut self) {
+        self.active_loops += 1;
+    }
+
+    pub fn exit_loop(&mut self) {
+        self.active_loops -= 1;
+    }
+
+    pub fn loop_active(&self) -> bool {
+        self.active_loops > 0
     }
 }
 
@@ -200,8 +216,18 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
         }
         Tree::Name(_, _) => Ok(()),
         Tree::BoolLiteral(_, _) => Ok(()),
-        Tree::Continue(_) => Ok(()),
-        Tree::Break(_) => Ok(()),
+        Tree::Continue(_) => {
+            if !state.loop_active() {
+                return Err("Continue can only be used in a loop".to_string());
+            }
+            Ok(())
+        }
+        Tree::Break(_) => {
+            if !state.loop_active() {
+                return Err("Break can only be used in a loop".to_string());
+            }
+            Ok(())
+        }
         Tree::BinaryOperation(lhs, rhs, operator_type) => {
             match operator_type {
                 OperatorType::LogicalOr | OperatorType::LogicalAnd => {
@@ -319,7 +345,10 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             {
                 return Err("Condition must be a boolean".to_string());
             }
-            analyze(expression, state)
+            state.enter_loop();
+            analyze(expression, state)?;
+            state.exit_loop();
+            Ok(())
         }
         Tree::For(initializer, condition, updater, expression, _) => {
             if let Some(initializer_expression) = initializer {
@@ -335,7 +364,10 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             if let Some(updater_expression) = updater {
                 analyze(updater_expression, state)?;
             }
-            analyze(expression, state)
+            state.enter_loop();
+            analyze(expression, state)?;
+            state.exit_loop();
+            Ok(())
         }
     }
 }

@@ -34,7 +34,8 @@ pub struct IRGraphConstructor {
     incomplete_side_effect_phis: HashMap<usize, usize>,
     sealed_blocks: Vec<usize>,
     current_block_index: BlockIndex,
-    active_loops: Vec<BlockIndex>,
+    active_loop_entries: Vec<BlockIndex>,
+    active_loop_exits: Vec<BlockIndex>,
 }
 
 impl IRGraphConstructor {
@@ -48,7 +49,8 @@ impl IRGraphConstructor {
             // Start Block never gets more predecessors
             sealed_blocks: vec![START_BLOCK],
             current_block_index: START_BLOCK,
-            active_loops: Vec::new(),
+            active_loop_entries: Vec::new(),
+            active_loop_exits: Vec::new(),
         }
     }
 
@@ -260,22 +262,22 @@ impl IRGraphConstructor {
             Tree::Break(_) => {
                 debug!(
                     "Generating IR for break statement with active loops: {:?}",
-                    self.active_loops
+                    self.active_loop_entries
                 );
                 let jump = self.create_jump();
                 self.graph
-                    .get_block_mut(*self.active_loops.first().unwrap())
+                    .get_block_mut(*self.active_loop_exits.first().unwrap())
                     .register_entry_point(self.current_block_index, jump);
                 None
             }
             Tree::Continue(_) => {
                 debug!(
                     "Generating IR for continue statement with active loops: {:?}",
-                    self.active_loops
+                    self.active_loop_entries
                 );
                 let jump = self.create_jump();
                 self.graph
-                    .get_block_mut(*self.active_loops.first().unwrap())
+                    .get_block_mut(*self.active_loop_entries.first().unwrap())
                     .register_entry_point(self.current_block_index, jump);
                 None
             }
@@ -328,13 +330,16 @@ impl IRGraphConstructor {
 
                 let mut loop_body = Block::new("while-body".to_string());
                 loop_body.register_entry_point(self.current_block_index, entry_false_projection);
+                let loop_body_index = self.graph.register_block(loop_body);
                 let mut following_block = Block::new("while-following".to_string());
                 following_block
                     .register_entry_point(self.current_block_index, entry_true_projection);
+                let following_block_index = self.graph.register_block(following_block);
                 self.seal_block(self.current_block_index);
 
-                let loop_body_index = self.graph.register_block(loop_body);
                 self.current_block_index = loop_body_index;
+                self.active_loop_entries.push(loop_body_index);
+                self.active_loop_exits.push(following_block_index);
                 self.convert_boxed(expression);
 
                 let condition_node = self.convert_boxed(condition)?;
@@ -347,9 +352,11 @@ impl IRGraphConstructor {
                     .get_block_mut(loop_body_index)
                     .register_entry_point(loop_body_index, true_projection);
 
-                following_block.register_entry_point(loop_body_index, false_projection);
+                self.graph
+                    .get_block_mut(following_block_index)
+                    .register_entry_point(loop_body_index, false_projection);
                 self.seal_block(loop_body_index);
-                self.current_block_index = self.graph.register_block(following_block);
+                self.current_block_index = following_block_index;
                 self.seal_block(self.current_block_index);
                 None
             }
@@ -403,19 +410,27 @@ impl IRGraphConstructor {
 
                 let mut loop_body = Block::new("for-body".to_string());
                 loop_body.register_entry_point(self.current_block_index, entry_false_projection);
+                let loop_body_index = self.graph.register_block(loop_body);
                 let mut following_block = Block::new("for-following".to_string());
                 following_block
                     .register_entry_point(self.current_block_index, entry_true_projection);
+                let following_block_index = self.graph.register_block(following_block);
+                let loop_post = Block::new("for-post".to_string());
+                let loop_post_index = self.graph.register_block(loop_post);
+
                 self.seal_block(self.current_block_index);
 
-                let loop_body_index = self.graph.register_block(loop_body);
                 self.current_block_index = loop_body_index;
+                self.active_loop_entries.push(loop_post_index);
+                self.active_loop_exits.push(following_block_index);
                 self.convert_boxed(expression);
+                self.active_loop_entries.pop();
+                self.active_loop_exits.pop();
                 let loop_body_exit = self.create_jump();
 
-                let mut loop_post = Block::new("for-post".to_string());
-                loop_post.register_entry_point(loop_body_index, loop_body_exit);
-                let loop_post_index = self.graph.register_block(loop_post);
+                self.graph
+                    .get_block_mut(loop_post_index)
+                    .register_entry_point(loop_body_index, loop_body_exit);
                 self.current_block_index = loop_post_index;
                 self.seal_block(loop_post_index);
 
@@ -433,9 +448,11 @@ impl IRGraphConstructor {
                     .get_block_mut(loop_body_index)
                     .register_entry_point(loop_post_index, true_projection);
 
-                following_block.register_entry_point(loop_post_index, false_projection);
+                self.graph
+                    .get_block_mut(following_block_index)
+                    .register_entry_point(loop_post_index, false_projection);
                 self.seal_block(loop_body_index);
-                self.current_block_index = self.graph.register_block(following_block);
+                self.current_block_index = following_block_index;
                 self.seal_block(self.current_block_index);
                 debug!("Following block after for: {}", self.current_block_index);
                 None
