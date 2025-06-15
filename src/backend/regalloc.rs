@@ -5,10 +5,13 @@ use std::{
 
 use tracing::debug;
 
-use crate::ir::{
-    block::NodeIndex,
-    graph::{BlockIndex, IRGraph, END_BLOCK},
-    node::Node,
+use crate::{
+    backend::codegen::Registers,
+    ir::{
+        block::NodeIndex,
+        graph::{BlockIndex, IRGraph, END_BLOCK},
+        node::Node,
+    },
 };
 pub trait Register {
     fn as_assembly(&self) -> String;
@@ -179,7 +182,7 @@ impl Display for StackRegister {
 
 pub struct RegisterAllocator {
     current_stack_offset: usize,
-    registers: HashMap<(BlockIndex, NodeIndex), Box<dyn Register>>,
+    registers: Registers,
     // Denotes that the key has been aliased by the value
     aliased_nodes: HashMap<(BlockIndex, NodeIndex), (BlockIndex, NodeIndex)>,
     available_hardware_register: Vec<HardwareRegister>,
@@ -210,10 +213,7 @@ impl RegisterAllocator {
         }
     }
 
-    pub fn allocate_registers(
-        mut self,
-        graph: &IRGraph,
-    ) -> (HashMap<(BlockIndex, NodeIndex), Box<dyn Register>>, usize) {
+    pub fn allocate_registers(mut self, graph: &IRGraph) -> (Registers, usize) {
         let mut visited = Vec::new();
         self.scan(END_BLOCK, graph, &mut visited);
         (self.registers, self.current_stack_offset)
@@ -270,28 +270,7 @@ impl RegisterAllocator {
         ir_graph: &IRGraph,
         register: &Box<dyn Register>,
     ) {
-        let node = ir_graph.get_node(node_index);
-        if let Node::Phi(data) = node {
-            debug!("Handling phi in register allocation: Aliasing the following nodes to store in the same node: {:?}", data.operands());
-            for (predecessor_block, predecessor_index) in data.operands() {
-                if self
-                    .aliased_nodes
-                    .contains_key(&(predecessor_block, predecessor_index))
-                {
-                    self.registers.insert(
-                        *self
-                            .aliased_nodes
-                            .get(&(predecessor_block, predecessor_index))
-                            .unwrap(),
-                        register.box_clone(),
-                    );
-                }
-                self.registers
-                    .insert((predecessor_block, predecessor_index), register.box_clone());
-                self.aliased_nodes
-                    .insert((predecessor_block, predecessor_index), node_index);
-            }
-        }
+        return;
     }
 
     pub fn has_available_hardware_register(&self) -> bool {

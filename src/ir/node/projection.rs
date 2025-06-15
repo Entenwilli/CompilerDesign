@@ -1,6 +1,6 @@
 use crate::ir::{block::NodeIndex, graph::BlockIndex};
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum ProjectionInformation {
     SideEffect,
     Result,
@@ -8,24 +8,21 @@ pub enum ProjectionInformation {
     IfFalse,
 }
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct ProjectionData {
-    input: (BlockIndex, NodeIndex),
+    input: NodeIndex,
     projection_information: ProjectionInformation,
 }
 
 impl ProjectionData {
-    pub fn new(
-        input: (BlockIndex, NodeIndex),
-        projection_information: ProjectionInformation,
-    ) -> ProjectionData {
+    pub fn new(input: NodeIndex, projection_information: ProjectionInformation) -> ProjectionData {
         ProjectionData {
             input,
             projection_information,
         }
     }
 
-    pub fn input(&self) -> (BlockIndex, NodeIndex) {
+    pub fn input(&self) -> NodeIndex {
         self.input
     }
 

@@ -7,6 +7,7 @@ pub type NodeIndex = usize;
 pub struct Block {
     // Denote that block can be entered from block (key) at node index (value) within that block
     entry_points: HashMap<BlockIndex, NodeIndex>,
+    phis: Vec<NodeIndex>,
     nodes: Vec<Node>,
     name: String,
 }
@@ -15,6 +16,7 @@ impl Block {
     pub fn new(name: String) -> Block {
         Block {
             entry_points: HashMap::new(),
+            phis: Vec::new(),
             nodes: Vec::new(),
             name,
         }
@@ -29,6 +31,9 @@ impl Block {
     }
 
     pub fn register_node(&mut self, node: Node) -> NodeIndex {
+        if let Node::Phi(_) = node {
+            self.phis.push(self.nodes.len());
+        }
         self.nodes.push(node);
         return self.nodes.len() - 1;
     }
@@ -45,6 +50,10 @@ impl Block {
 
     pub fn get_nodes(&self) -> &Vec<Node> {
         &self.nodes
+    }
+
+    pub fn phis(&self) -> &Vec<NodeIndex> {
+        &self.phis
     }
 
     pub fn get_last_node_index(&self) -> NodeIndex {

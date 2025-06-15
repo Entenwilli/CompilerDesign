@@ -10,7 +10,7 @@ use unary_operation::UnaryOperationData;
 
 use super::{block::NodeIndex, graph::BlockIndex};
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum Node {
     Add(BinaryOperationData),
     ConstantInt(ConstantIntData),
@@ -42,10 +42,10 @@ impl Node {
     pub fn predecessors(&self) -> Vec<usize> {
         match self {
             Node::Jump | Node::ConstantBool(_) | Node::ConstantInt(_) => vec![],
-            Node::Projection(data) => vec![data.input().1],
+            Node::Projection(data) => vec![data.input()],
             Node::Phi(_data) => todo!("What to return?"),
-            Node::Return(data) => vec![data.input().1],
-            Node::ConditionalJump(data) | Node::BitwiseNegate(data) => vec![data.input().1],
+            Node::Return(data) => vec![data.input()],
+            Node::ConditionalJump(data) | Node::BitwiseNegate(data) => vec![data.input()],
             Node::Add(data)
             | Node::Division(data)
             | Node::ShiftRight(data)
@@ -61,12 +61,12 @@ impl Node {
             | Node::Xor(data)
             | Node::Or(data)
             | Node::Subtraction(data)
-            | Node::ShiftLeft(data) => vec![data.lhs().1, data.rhs().1],
+            | Node::ShiftLeft(data) => vec![data.lhs(), data.rhs()],
         }
     }
 }
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct ConstantIntData {
     value: i32,
 }
@@ -81,7 +81,7 @@ impl ConstantIntData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct ConstantBoolData {
     value: bool,
 }
@@ -96,7 +96,7 @@ impl ConstantBoolData {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PhiData {
     operands: Vec<(BlockIndex, NodeIndex)>,
 }
@@ -122,17 +122,17 @@ impl PhiData {
     }
 }
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct ReturnData {
-    input: (BlockIndex, NodeIndex),
+    input: NodeIndex,
 }
 
 impl ReturnData {
-    pub fn new(input: (BlockIndex, NodeIndex)) -> ReturnData {
+    pub fn new(input: NodeIndex) -> ReturnData {
         ReturnData { input }
     }
 
-    pub fn input(&self) -> (BlockIndex, NodeIndex) {
+    pub fn input(&self) -> NodeIndex {
         self.input
     }
 }

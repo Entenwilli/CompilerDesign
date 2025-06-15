@@ -13,7 +13,7 @@ use crate::ir::{
 
 use super::regalloc::{HardwareRegister, Register, RegisterAllocator};
 
-type Registers<'a> = HashMap<(BlockIndex, NodeIndex), Box<dyn Register>>;
+pub type Registers = HashMap<(BlockIndex, NodeIndex), Box<dyn Register>>;
 
 const TEMPLATE: &str = " .section .note.GNU-stack,\"\",@progbits
 .global main
@@ -135,7 +135,7 @@ impl CodeGenerator {
         ir_graph: &IRGraph,
         registers: &Registers,
     ) -> String {
-        // Start and End Nodes should not emit code
+        // End Node should not emit code
         if block.get_nodes().is_empty() {
             return String::new();
         }
@@ -143,6 +143,7 @@ impl CodeGenerator {
         let mut code = String::new();
         let block_label = self.jump_label.get(&block_index).unwrap();
         code.push_str(&format!("{}:\n", block_label));
+
         for (node_index, node) in block.get_nodes().iter().enumerate() {
             code.push_str(&self.generate_for_node(
                 node,
@@ -229,7 +230,7 @@ impl CodeGenerator {
                 ));
             }
             Node::Return(data) => {
-                code.push_str(&self.generate_return(ir_graph, data, registers));
+                code.push_str(&self.generate_return(block, block_index, data, registers));
             }
             Node::ConstantInt(data) => {
                 code.push_str(&self.generate_constant_int(
@@ -268,19 +269,33 @@ impl CodeGenerator {
             | Node::NotEquals(data)
             | Node::Lower(data)
             | Node::Higher(data) => {
-                code.push_str(&self.generate_comparison(block, data, ir_graph, registers));
+                code.push_str(&self.generate_comparison(
+                    block,
+                    block_index,
+                    data,
+                    ir_graph,
+                    registers,
+                ));
+            }
+            Node::BitwiseNegate(data) => {
+                let register = registers.get(&(block_index, data.input())).unwrap();
+                code.push_str(&format!("not {}", register.as_assembly()));
             }
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
-            Node::Phi(data) => {
-                debug!("Warning! Phi present: Aliasing {:?}", data.operands());
-            }
+            Node::Phi(data) => {}
             Node::Jump => {
                 trace!(
                     "Generating assembly for jump: {} with destination XXX",
                     node,
                 );
-                let previous_block_index = jump_information.get(&node_index).unwrap();
-                let label = self.jump_label.get(previous_block_index).unwrap();
+                let following_block_index = jump_information.get(&node_index).unwrap();
+                let label = self.jump_label.get(following_block_index).unwrap();
+                code.push_str(&self.generate_phi_moves(
+                    block_index,
+                    *following_block_index,
+                    registers,
+                    ir_graph,
+                ));
                 code.push_str(&format!("jmp {}\n", label));
             }
             Node::ConditionalJump(_) => {}
@@ -289,25 +304,79 @@ impl CodeGenerator {
                     "Generating IR for true projection (including jump) with jump information {:?}",
                     jump_information
                 );
-                let previous_block_index = jump_information.get(&node_index).unwrap();
-                let conditional_jump_code =
-                    self.generate_conditional_jump(node_index, block, *previous_block_index);
+                let following_block_index = jump_information.get(&node_index).unwrap();
+                let conditional_jump_code = self.generate_conditional_jump(
+                    node_index,
+                    block,
+                    block_index,
+                    *following_block_index,
+                    registers,
+                );
+                code.push_str(&self.generate_phi_moves(
+                    block_index,
+                    *following_block_index,
+                    registers,
+                    ir_graph,
+                ));
                 code.push_str(&conditional_jump_code.expect("Expected jump code"));
             }
             Node::Projection(data)
                 if data.projection_info().eq(&ProjectionInformation::IfFalse) =>
             {
-                let previous_block_index = jump_information.get(&node_index).unwrap();
+                let following_block_index = jump_information.get(&node_index).unwrap();
                 let jump_label = self
                     .jump_label
-                    .get(previous_block_index)
+                    .get(following_block_index)
                     .expect("Expected jump label for false if");
+                code.push_str(&self.generate_phi_moves(
+                    block_index,
+                    *following_block_index,
+                    registers,
+                    ir_graph,
+                ));
+
                 code.push_str(&format!("jmp {}\n", jump_label));
             }
             Node::Projection(_) => return code,
             node => panic!("unimplemented node {:?}", node),
         }
         debug!("Generated code for IR: {}", code);
+        code
+    }
+
+    pub fn generate_phi_moves(
+        &self,
+        current_block_index: BlockIndex,
+        following_block_index: BlockIndex,
+        registers: &Registers,
+        ir_graph: &IRGraph,
+    ) -> String {
+        let mut code = String::new();
+        let following_block = ir_graph.get_block(following_block_index);
+        for phi_index in following_block.phis() {
+            let phi = following_block.get_node(*phi_index);
+            if let Node::Phi(data) = phi {
+                let destination_register =
+                    registers.get(&(following_block_index, *phi_index)).unwrap();
+                for operand in data.operands() {
+                    if operand.0 != current_block_index {
+                        continue;
+                    }
+                    let source_register = registers.get(&operand).unwrap();
+                    code.push_str(&format!(
+                        "movq {}, {}\n",
+                        source_register.as_assembly(),
+                        destination_register.as_assembly()
+                    ));
+                    break;
+                }
+            }
+        }
+        trace!(
+            "Generated the following phi moves for block {}: {}",
+            current_block_index,
+            code
+        );
         code
     }
 
@@ -325,7 +394,9 @@ impl CodeGenerator {
         &self,
         projection_index: usize,
         current_block: &Block,
+        current_block_index: BlockIndex,
         previous_block: usize,
+        registers: &Registers,
     ) -> Option<String> {
         let mut code = String::new();
         let true_label = self.jump_label.get(&previous_block).unwrap();
@@ -343,6 +414,13 @@ impl CodeGenerator {
             Node::HigherEquals(_) => "jae",
             Node::Higher(_) => "ja",
             Node::ConstantBool(_) => "je",
+            Node::BitwiseNegate(_) => "jne",
+            Node::Phi(_) | Node::ConstantInt(_) => {
+                let register = registers.get(&(current_block_index, comparision)).unwrap();
+                code.push_str(&format!("testq $0x1, {}\n", register.as_assembly()));
+                code.push_str(&format!("jnz {}\n", true_label));
+                return Some(code);
+            }
             node => panic!("Invalid operation before conditional jump: {}", node),
         };
         code.push_str(&format!("{} {}\n", op_code, true_label));
@@ -352,15 +430,22 @@ impl CodeGenerator {
     pub fn generate_comparison(
         &self,
         block: &Block,
+        block_index: BlockIndex,
         operation_data: &BinaryOperationData,
         ir_graph: &IRGraph,
         registers: &Registers,
     ) -> String {
         let left_value = registers
-            .get(&predecessor_skip_projection(ir_graph, operation_data.lhs()))
+            .get(&(
+                block_index,
+                predecessor_skip_projection(block, operation_data.lhs()),
+            ))
             .unwrap();
         let right_value = registers
-            .get(&predecessor_skip_projection(ir_graph, operation_data.rhs()))
+            .get(&(
+                block_index,
+                predecessor_skip_projection(block, operation_data.rhs()),
+            ))
             .unwrap();
         let mut code = String::new();
         if !left_value.hardware_register() && !right_value.hardware_register() {
@@ -393,10 +478,10 @@ impl CodeGenerator {
         op_code: &str,
     ) -> String {
         let left_value = registers
-            .get(&predecessor_skip_projection(ir_graph, data.lhs()))
+            .get(&(block_index, predecessor_skip_projection(block, data.lhs())))
             .unwrap();
         let right_value = registers
-            .get(&predecessor_skip_projection(ir_graph, data.rhs()))
+            .get(&(block_index, predecessor_skip_projection(block, data.rhs())))
             .unwrap();
 
         let destination_register = registers.get(&(block_index, node_index)).unwrap();
@@ -444,10 +529,10 @@ impl CodeGenerator {
         mode: &str,
     ) -> String {
         let left_value = registers
-            .get(&predecessor_skip_projection(ir_graph, data.lhs()))
+            .get(&(block_index, predecessor_skip_projection(block, data.lhs())))
             .unwrap();
         let right_value = registers
-            .get(&predecessor_skip_projection(ir_graph, data.rhs()))
+            .get(&(block_index, predecessor_skip_projection(block, data.rhs())))
             .unwrap();
         let destination_register = registers.get(&(block_index, node_index)).unwrap();
         let mut code = String::new();
@@ -491,8 +576,8 @@ impl CodeGenerator {
         op_code: &str,
     ) -> String {
         let mut code = String::new();
-        let left_value = registers.get(&data.lhs()).unwrap();
-        let right_value = registers.get(&data.rhs()).unwrap();
+        let left_value = registers.get(&(block_index, data.lhs())).unwrap();
+        let right_value = registers.get(&(block_index, data.rhs())).unwrap();
         code.push_str(&format!(
             "movq {}, {}\n",
             right_value.as_assembly(),
@@ -515,21 +600,27 @@ impl CodeGenerator {
 
     pub fn generate_return(
         &self,
-        ir_graph: &IRGraph,
+        block: &Block,
+        block_index: BlockIndex,
         data: &ReturnData,
         registers: &Registers,
     ) -> String {
         debug!("Generating assembly for return");
-        let return_node = predecessor_skip_projection(ir_graph, data.input());
+        let return_node = predecessor_skip_projection(block, data.input());
         debug!(
             "Determined node {} that contains the return result",
-            ir_graph.get_node(return_node)
+            block.get_node(return_node)
         );
         debug!("Registers: {:?}", registers);
 
         let mut code = String::new();
         code.push_str("mov ");
-        code.push_str(&registers.get(&return_node).unwrap().as_assembly());
+        code.push_str(
+            &registers
+                .get(&(block_index, return_node))
+                .unwrap()
+                .as_assembly(),
+        );
         code.push_str(", %rax");
         code.push('\n');
 
@@ -558,11 +649,8 @@ impl CodeGenerator {
     }
 }
 
-fn predecessor_skip_projection(
-    ir_graph: &IRGraph,
-    data: (BlockIndex, NodeIndex),
-) -> (BlockIndex, NodeIndex) {
-    let predecessor = ir_graph.get_node(data);
+fn predecessor_skip_projection(block: &Block, data: NodeIndex) -> NodeIndex {
+    let predecessor = block.get_node(data);
     if let Node::Projection(data) = predecessor {
         data.input()
     } else {
