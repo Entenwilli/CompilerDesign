@@ -31,6 +31,7 @@ pub enum Node {
     HigherEquals(BinaryOperationData),
     Higher(BinaryOperationData),
     BitwiseNegate(UnaryOperationData),
+    LogicalNot(UnaryOperationData),
     Or(BinaryOperationData),
     And(BinaryOperationData),
     Xor(BinaryOperationData),
@@ -45,7 +46,9 @@ impl Node {
             Node::Projection(data) => vec![data.input()],
             Node::Phi(_data) => todo!("What to return?"),
             Node::Return(data) => vec![data.input()],
-            Node::ConditionalJump(data) | Node::BitwiseNegate(data) => vec![data.input()],
+            Node::ConditionalJump(data) | Node::LogicalNot(data) | Node::BitwiseNegate(data) => {
+                vec![data.input()]
+            }
             Node::Add(data)
             | Node::Division(data)
             | Node::ShiftRight(data)

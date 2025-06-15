@@ -238,7 +238,7 @@ impl IRGraphConstructor {
                 }
                 OperatorType::LogicalNot => {
                     let node = self.convert_boxed(expression)?;
-                    let result = self.create_bitwise_not(node);
+                    let result = self.create_logical_not(node);
                     Some(result)
                 }
                 _ => panic!("Unregistered Unary Operation {:?}", operator_type),
@@ -522,7 +522,7 @@ impl IRGraphConstructor {
             }
         } else if let Tree::IdentifierExpression(_) = *condition {
             let variable = self.convert_boxed(condition).unwrap();
-            self.create_bitwise_not(variable)
+            self.create_logical_not(variable)
         } else if let Tree::BoolLiteral(value, _) = *condition {
             if value {
                 self.create_constant_int(0)
@@ -654,6 +654,14 @@ impl IRGraphConstructor {
         current_block.register_node(Node::BitwiseNegate(
             UnaryOperationData::new_with_sideeffect(node, sideeffect),
         ))
+    }
+
+    fn create_logical_not(&mut self, node: NodeIndex) -> NodeIndex {
+        let sideeffect = self.read_current_side_effect();
+        let current_block = self.graph.get_block_mut(self.current_block_index);
+        current_block.register_node(Node::LogicalNot(UnaryOperationData::new_with_sideeffect(
+            node, sideeffect,
+        )))
     }
 
     fn create_constant_int(&mut self, value: i32) -> NodeIndex {

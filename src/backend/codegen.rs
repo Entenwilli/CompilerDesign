@@ -277,6 +277,14 @@ impl CodeGenerator {
                     registers,
                 ));
             }
+            Node::LogicalNot(data) => {
+                let register = registers.get(&(block_index, data.input())).unwrap();
+                code.push_str(&format!(
+                    "test {}, {}\n",
+                    register.as_assembly(),
+                    register.as_assembly()
+                ));
+            }
             Node::BitwiseNegate(data) => {
                 let register = registers.get(&(block_index, data.input())).unwrap();
                 code.push_str(&format!("not {}\n", register.as_assembly()));
@@ -415,6 +423,7 @@ impl CodeGenerator {
             Node::Higher(_) => "ja",
             Node::ConstantBool(_) => "je",
             Node::BitwiseNegate(_) => "jne",
+            Node::LogicalNot(_) => "je",
             Node::Phi(_) | Node::ConstantInt(_) => {
                 let register = registers.get(&(current_block_index, comparision)).unwrap();
                 code.push_str(&format!("testq $0x1, {}\n", register.as_assembly()));
