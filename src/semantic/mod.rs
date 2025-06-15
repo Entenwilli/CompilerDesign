@@ -351,6 +351,8 @@ fn get_variable_type(type_tree: Box<Tree>, state: &mut AnalysisState) -> Option<
                 | OperatorType::Div
                 | OperatorType::Plus
                 | OperatorType::Mod
+                | OperatorType::ShiftLeft
+                | OperatorType::ShiftRight
                 | OperatorType::Minus => Some(Type::Int),
                 OperatorType::Lower
                 | OperatorType::LowerEquals
