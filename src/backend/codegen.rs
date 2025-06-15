@@ -281,13 +281,13 @@ impl CodeGenerator {
                 let register = registers.get(&(block_index, data.input())).unwrap();
                 code.push_str(&format!(
                     "test {}, {}\n",
-                    register.as_assembly(),
-                    register.as_assembly()
+                    register.as_32_bit_assembly(),
+                    register.as_32_bit_assembly()
                 ));
             }
             Node::BitwiseNegate(data) => {
                 let register = registers.get(&(block_index, data.input())).unwrap();
-                code.push_str(&format!("not {}\n", register.as_assembly()));
+                code.push_str(&format!("not {}\n", register.as_32_bit_assembly()));
             }
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
             Node::Phi(data) => {}
@@ -371,11 +371,22 @@ impl CodeGenerator {
                         continue;
                     }
                     let source_register = registers.get(&operand).unwrap();
-                    code.push_str(&format!(
-                        "movq {}, {}\n",
-                        source_register.as_assembly(),
-                        destination_register.as_assembly()
-                    ));
+                    if !source_register.hardware_register()
+                        && !destination_register.hardware_register()
+                    {
+                        code.push_str(&move_stack_variable(source_register));
+                        code.push_str(&format!(
+                            "mov {}, {}\n",
+                            HardwareRegister::Rbx.as_32_bit_assembly(),
+                            destination_register.as_32_bit_assembly()
+                        ));
+                    } else {
+                        code.push_str(&format!(
+                            "mov {}, {}\n",
+                            source_register.as_32_bit_assembly(),
+                            destination_register.as_32_bit_assembly()
+                        ));
+                    }
                     break;
                 }
             }
@@ -426,7 +437,7 @@ impl CodeGenerator {
             Node::LogicalNot(_) => "je",
             Node::Phi(_) | Node::ConstantInt(_) => {
                 let register = registers.get(&(current_block_index, comparision)).unwrap();
-                code.push_str(&format!("testq $0x1, {}\n", register.as_assembly()));
+                code.push_str(&format!("test $0x1, {}\n", register.as_32_bit_assembly()));
                 code.push_str(&format!("jnz {}\n", true_label));
                 return Some(code);
             }
@@ -463,14 +474,14 @@ impl CodeGenerator {
         if !left_value.hardware_register() && !right_value.hardware_register() {
             code.push_str(&format!(
                 "cmp {}, {}\n",
-                right_value.as_assembly(),
-                HardwareRegister::Rbx.as_assembly(),
+                right_value.as_32_bit_assembly(),
+                HardwareRegister::Rbx.as_32_bit_assembly(),
             ));
         } else {
             code.push_str(&format!(
                 "cmp {}, {}\n",
-                right_value.as_assembly(),
-                left_value.as_assembly()
+                right_value.as_32_bit_assembly(),
+                left_value.as_32_bit_assembly()
             ));
         }
         code
@@ -501,12 +512,12 @@ impl CodeGenerator {
         }
         code.push_str("mov ");
         if !left_value.hardware_register() && !destination_register.hardware_register() {
-            code.push_str(&HardwareRegister::Rbx.as_assembly());
+            code.push_str(&HardwareRegister::Rbx.as_32_bit_assembly());
         } else {
-            code.push_str(&left_value.as_assembly());
+            code.push_str(&left_value.as_32_bit_assembly());
         }
         code.push_str(", ");
-        code.push_str(&destination_register.as_assembly());
+        code.push_str(&destination_register.as_32_bit_assembly());
         code.push('\n');
 
         if !right_value.hardware_register() && !destination_register.hardware_register() {
@@ -516,12 +527,12 @@ impl CodeGenerator {
         code.push_str(op_code);
         code.push(' ');
         if !right_value.hardware_register() && !destination_register.hardware_register() {
-            code.push_str(&HardwareRegister::Rbx.as_assembly());
+            code.push_str(&HardwareRegister::Rbx.as_32_bit_assembly());
         } else {
-            code.push_str(&right_value.as_assembly());
+            code.push_str(&right_value.as_32_bit_assembly());
         }
         code.push_str(", ");
-        code.push_str(&destination_register.as_assembly());
+        code.push_str(&destination_register.as_32_bit_assembly());
         code.push('\n');
         code
     }
@@ -545,10 +556,10 @@ impl CodeGenerator {
             .unwrap();
         let destination_register = registers.get(&(block_index, node_index)).unwrap();
         let mut code = String::new();
-        code.push_str("movq $0, %rdx\n");
-        code.push_str("movq $0, %rax\n");
-        code.push_str("movq $0, ");
-        code.push_str(&destination_register.as_assembly());
+        code.push_str("mov $0, %rdx\n");
+        code.push_str("mov $0, %rax\n");
+        code.push_str("mov $0, ");
+        code.push_str(&destination_register.as_32_bit_assembly());
         code.push('\n');
 
         code.push_str("mov ");
@@ -564,12 +575,12 @@ impl CodeGenerator {
 
         code.push_str("mov ");
         if mode == "mod" {
-            code.push_str("%rdx");
+            code.push_str("%edx");
         } else {
-            code.push_str("%rax");
+            code.push_str("%eax");
         }
         code.push_str(", ");
-        code.push_str(&destination_register.as_assembly());
+        code.push_str(&destination_register.as_32_bit_assembly());
         code.push('\n');
         code
     }
@@ -588,21 +599,21 @@ impl CodeGenerator {
         let left_value = registers.get(&(block_index, data.lhs())).unwrap();
         let right_value = registers.get(&(block_index, data.rhs())).unwrap();
         code.push_str(&format!(
-            "movq {}, {}\n",
-            right_value.as_assembly(),
-            HardwareRegister::Rcx.as_assembly()
+            "mov {}, {}\n",
+            right_value.as_32_bit_assembly(),
+            HardwareRegister::Rcx.as_32_bit_assembly()
         ));
         code.push_str(&format!(
             "{} {}, {}\n",
             op_code,
             HardwareRegister::Rcx.as_8_bit_assembly(),
-            left_value.as_assembly()
+            left_value.as_32_bit_assembly()
         ));
         let destination = registers.get(&(block_index, node_index)).unwrap();
         code.push_str(&format!(
-            "movq {}, {}\n",
-            left_value.as_assembly(),
-            destination.as_assembly()
+            "mov {}, {}\n",
+            left_value.as_32_bit_assembly(),
+            destination.as_32_bit_assembly()
         ));
         code
     }
@@ -628,9 +639,9 @@ impl CodeGenerator {
             &registers
                 .get(&(block_index, return_node))
                 .unwrap()
-                .as_assembly(),
+                .as_32_bit_assembly(),
         );
-        code.push_str(", %rax");
+        code.push_str(", %eax");
         code.push('\n');
 
         code.push_str("leave\n");
@@ -649,10 +660,10 @@ impl CodeGenerator {
         let register = registers.get(&(block_index, node_index)).unwrap();
 
         let mut code = String::new();
-        code.push_str("movq ");
+        code.push_str("mov ");
         code.push_str(&(format!("$0x{:X}", &constant_data.value()).to_string()));
         code.push_str(", ");
-        code.push_str(&register.as_assembly());
+        code.push_str(&register.as_32_bit_assembly());
         code.push('\n');
         code
     }
@@ -669,10 +680,10 @@ fn predecessor_skip_projection(block: &Block, data: NodeIndex) -> NodeIndex {
 
 fn move_stack_variable(register: &Box<dyn Register>) -> String {
     let mut code = String::new();
-    code.push_str("movq ");
-    code.push_str(&register.as_assembly());
+    code.push_str("mov ");
+    code.push_str(&register.as_32_bit_assembly());
     code.push_str(", ");
-    code.push_str(&HardwareRegister::Rbx.as_assembly());
+    code.push_str(&HardwareRegister::Rbx.as_32_bit_assembly());
     code.push('\n');
     code
 }

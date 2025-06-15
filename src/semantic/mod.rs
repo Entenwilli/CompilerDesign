@@ -242,7 +242,10 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
         }
         Tree::Block(statements, _) => {
             for statement in statements {
-                analyze(Box::new(statement), state)?;
+                analyze(Box::new(statement.clone()), state)?;
+                if let Tree::Return(_, _) = statement {
+                    break;
+                }
             }
             Ok(())
         }
@@ -283,6 +286,13 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 .ne(&Type::Bool)
             {
                 return Err("Condition must be a boolean".to_string());
+            }
+            let true_type =
+                get_variable_type(true_statement.clone(), state).ok_or("Variable undefined!")?;
+            let false_type =
+                get_variable_type(false_statement.clone(), state).ok_or("Variable undefined!")?;
+            if true_type.ne(&false_type) {
+                return Err("Ternary operator types not equal".to_string());
             }
             analyze(true_statement, state)?;
             analyze(false_statement, state)
@@ -365,6 +375,7 @@ fn get_variable_type(type_tree: Box<Tree>, state: &mut AnalysisState) -> Option<
                 None
             }
         }
+        Tree::TernaryOperation(_, true_expression, _) => get_variable_type(true_expression, state),
         _ => None,
     }
 }

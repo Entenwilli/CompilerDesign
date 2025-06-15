@@ -110,7 +110,7 @@ impl HardwareRegister {
 
 impl Register for HardwareRegister {
     fn as_assembly(&self) -> String {
-        format!("%{}", self.as_string())
+        self.as_32_bit_assembly()
     }
     fn hardware_register(&self) -> bool {
         true
