@@ -310,8 +310,8 @@ impl IRGraphConstructor {
                 self.seal_block(true_block_index);
                 self.seal_block(false_block_index);
                 let phi = self.create_phi_from_operands(vec![
-                    (self.current_block_index, false_expression),
-                    (self.current_block_index, true_expression),
+                    (false_block_index, false_expression),
+                    (true_block_index, true_expression),
                 ]);
                 self.seal_block(self.current_block_index);
                 Some(phi)
