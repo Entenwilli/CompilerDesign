@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env::var};
+use std::{collections::HashMap, env::var, error::Error};
 
 use tracing::trace;
 
@@ -71,7 +71,13 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::Return(sub, _) => {
-            analyze(sub, state)?;
+            analyze(sub.clone(), state)?;
+            if get_variable_type(sub, state)
+                .ok_or("Variable not defined!")?
+                .ne(&Type::Int)
+            {
+                return Err("Function must return an int".to_string());
+            }
             state.return_state = ReturnState::Returning;
             Ok(())
         }
