@@ -370,7 +370,13 @@ impl CodeGenerator {
                     if operand.0 != current_block_index {
                         continue;
                     }
-                    let source_register = registers.get(&operand).unwrap();
+                    let operand_block = ir_graph.get_block(operand.0);
+                    let source_register = registers
+                        .get(&(
+                            operand.0,
+                            predecessor_skip_projection(operand_block, operand.1),
+                        ))
+                        .unwrap();
                     if !source_register.hardware_register()
                         && !destination_register.hardware_register()
                     {
