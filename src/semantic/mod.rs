@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, env::var};
 
 use crate::{
     lexer::token::{OperatorType, Token},
-    parser::{ast::Tree, symbols::Name},
+    parser::{ast::Tree, symbols::Name, types::Type},
     util::int_parsing::parse_int,
 };
 
@@ -26,8 +26,34 @@ enum ReturnState {
     NotReturing,
 }
 
+pub struct VariableStatus {
+    type_status: Type,
+    declaration_status: DeclarationStatus,
+}
+
+impl VariableStatus {
+    pub fn new(type_status: Type, declaration_status: DeclarationStatus) -> VariableStatus {
+        VariableStatus {
+            type_status,
+            declaration_status,
+        }
+    }
+
+    pub fn declaration(&self) -> &DeclarationStatus {
+        &self.declaration_status
+    }
+
+    pub fn type_status(&self) -> &Type {
+        &self.type_status
+    }
+
+    pub fn set_initialized(&mut self) {
+        self.declaration_status = DeclarationStatus::Initialized
+    }
+}
+
 #[derive(PartialEq, PartialOrd)]
-enum VariableStatus {
+pub enum DeclarationStatus {
     Declared,
     Initialized,
 }
@@ -72,17 +98,33 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                                 .namespace
                                 .get(&name)
                                 .unwrap()
-                                .ne(&VariableStatus::Initialized)
+                                .declaration()
+                                .ne(&DeclarationStatus::Initialized)
                             {
-                                state.namespace.insert(name, VariableStatus::Initialized);
+                                state.namespace.get_mut(&name).unwrap().set_initialized();
                             }
+                            let expression_type = get_variable_type(expression.clone(), state)
+                                .ok_or("Variable undefined!")?;
+                            if state
+                                .namespace
+                                .get(&name)
+                                .unwrap()
+                                .type_status()
+                                .ne(&expression_type)
+                            {
+                                return Err(
+                                    "Variable must be of the same type as expression!".to_string()
+                                );
+                            }
+                            {}
                         } else if !state.namespace.contains_key(&name) {
                             return Err(format!("Undecleared variable {} used!", name.as_string()));
                         } else if state
                             .namespace
                             .get(&name)
                             .unwrap()
-                            .eq(&VariableStatus::Declared)
+                            .declaration()
+                            .eq(&DeclarationStatus::Declared)
                         {
                             return Err("Decleared variable without value used!".to_string());
                         }
@@ -92,12 +134,14 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::Declaration(variable_type, name, initializer) => {
-            analyze(variable_type, state)?;
+            analyze(variable_type.clone(), state)?;
             analyze(name.clone(), state)?;
+            let variable_type =
+                get_variable_type(variable_type, state).ok_or("Variable undefined!")?;
             let variable_state = if initializer.is_some() {
-                VariableStatus::Initialized
+                VariableStatus::new(variable_type.clone(), DeclarationStatus::Initialized)
             } else {
-                VariableStatus::Declared
+                VariableStatus::new(variable_type.clone(), DeclarationStatus::Declared)
             };
             if let Tree::Name(identifier, _) = *name {
                 let variable_status = state.namespace.get(&identifier);
@@ -109,6 +153,12 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 state.namespace.insert(identifier.clone(), variable_state);
             }
             if let Some(present_initializer) = initializer {
+                if get_variable_type(present_initializer.clone(), state)
+                    .ok_or("Variable undefined!")?
+                    .ne(&variable_type)
+                {
+                    return Err("initializer must be of same type as variable".to_string());
+                }
                 analyze(present_initializer, state)?;
             };
             Ok(())
@@ -124,7 +174,8 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                     .namespace
                     .get(&name)
                     .unwrap()
-                    .eq(&VariableStatus::Declared)
+                    .declaration()
+                    .eq(&DeclarationStatus::Declared)
                 {
                     return Err(format!(
                         "Uninitialized variable {} used in expression!",
@@ -138,7 +189,41 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
         Tree::BoolLiteral(_, _) => Ok(()),
         Tree::Continue(_) => Ok(()),
         Tree::Break(_) => Ok(()),
-        Tree::BinaryOperation(lhs, rhs, _) => {
+        Tree::BinaryOperation(lhs, rhs, operator_type) => {
+            match operator_type {
+                OperatorType::LogicalOr | OperatorType::LogicalAnd => {
+                    if get_variable_type(lhs.clone(), state)
+                        .ok_or("Variable undefined!")?
+                        .ne(&Type::Bool)
+                        || get_variable_type(rhs.clone(), state)
+                            .ok_or("Variable undefined!")?
+                            .ne(&Type::Bool)
+                    {
+                        return Err("Expression must be a boolean".to_string());
+                    }
+                }
+                OperatorType::Minus
+                | OperatorType::ShiftRight
+                | OperatorType::ShiftLeft
+                | OperatorType::BitwiseXor
+                | OperatorType::BitwiseAnd
+                | OperatorType::BitwiseOr
+                | OperatorType::Plus
+                | OperatorType::Mul
+                | OperatorType::Mod
+                | OperatorType::Div => {
+                    if get_variable_type(lhs.clone(), state)
+                        .ok_or("Variable undefined!")?
+                        .ne(&Type::Int)
+                        || get_variable_type(rhs.clone(), state)
+                            .ok_or("Variable undefined!")?
+                            .ne(&Type::Int)
+                    {
+                        return Err("Expression must be a integer".to_string());
+                    }
+                }
+                _ => {}
+            }
             analyze(lhs, state)?;
             analyze(rhs, state)
         }
@@ -149,7 +234,28 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::LValueIdentifier(name) => analyze(name, state),
-        Tree::UnaryOperation(expression, _, _) => analyze(expression, state),
+        Tree::UnaryOperation(expression, operator_type, _) => {
+            match operator_type {
+                OperatorType::LogicalNot => {
+                    if get_variable_type(expression.clone(), state)
+                        .ok_or("Variable undefined!")?
+                        .ne(&Type::Bool)
+                    {
+                        return Err("Expression must be a boolean".to_string());
+                    }
+                }
+                OperatorType::BitwiseNot | OperatorType::Minus => {
+                    if get_variable_type(expression.clone(), state)
+                        .ok_or("Variable undefined!")?
+                        .ne(&Type::Int)
+                    {
+                        return Err("Expression must be a integer".to_string());
+                    }
+                }
+                _ => {}
+            }
+            analyze(expression, state)
+        }
         Tree::Type(_, _) => Ok(()),
         Tree::Program(statements) => {
             for statement in statements {
@@ -158,12 +264,24 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::TernaryOperation(statement, true_statement, false_statement) => {
-            analyze(statement, state)?;
+            analyze(statement.clone(), state)?;
+            if get_variable_type(statement, state)
+                .ok_or("Variable undefined!")?
+                .ne(&Type::Bool)
+            {
+                return Err("Condition must be a boolean".to_string());
+            }
             analyze(true_statement, state)?;
             analyze(false_statement, state)
         }
         Tree::If(condition, expression, else_expression, _) => {
-            analyze(condition, state)?;
+            analyze(condition.clone(), state)?;
+            if get_variable_type(condition, state)
+                .ok_or("Variable undefined!")?
+                .ne(&Type::Bool)
+            {
+                return Err("Condition must be a boolean".to_string());
+            }
             analyze(expression, state)?;
             if let Some(other_expression) = else_expression {
                 analyze(other_expression, state)?;
@@ -171,18 +289,69 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::While(condition, expression, _) => {
-            analyze(condition, state)?;
+            analyze(condition.clone(), state)?;
+            if get_variable_type(condition, state)
+                .ok_or("Variable undefined!")?
+                .ne(&Type::Bool)
+            {
+                return Err("Condition must be a boolean".to_string());
+            }
             analyze(expression, state)
         }
         Tree::For(initializer, condition, updater, expression, _) => {
             if let Some(initializer_expression) = initializer {
                 analyze(initializer_expression, state)?;
             }
-            analyze(condition, state)?;
+            analyze(condition.clone(), state)?;
+            if get_variable_type(condition, state)
+                .ok_or("Variable undefined!")?
+                .ne(&Type::Bool)
+            {
+                return Err("Condition must be a boolean".to_string());
+            }
             if let Some(updater_expression) = updater {
                 analyze(updater_expression, state)?;
             }
             analyze(expression, state)
         }
+    }
+}
+
+fn get_variable_type(type_tree: Box<Tree>, state: &mut AnalysisState) -> Option<Type> {
+    match *type_tree {
+        Tree::Type(variable_type, _) => Some(variable_type),
+        Tree::Literal(_, _, _) => Some(Type::Int),
+        Tree::BoolLiteral(_, _) => Some(Type::Bool),
+        Tree::BinaryOperation(_, _, operator_type) | Tree::UnaryOperation(_, operator_type, _) => {
+            match operator_type {
+                OperatorType::Mul
+                | OperatorType::Div
+                | OperatorType::Plus
+                | OperatorType::Mod
+                | OperatorType::Minus => Some(Type::Int),
+                OperatorType::Lower
+                | OperatorType::LowerEquals
+                | OperatorType::Equals
+                | OperatorType::NotEquals
+                | OperatorType::HigherEquals
+                | OperatorType::Higher => Some(Type::Bool),
+                OperatorType::BitwiseOr
+                | OperatorType::BitwiseNot
+                | OperatorType::BitwiseAnd
+                | OperatorType::BitwiseXor => Some(Type::Int),
+                OperatorType::LogicalOr | OperatorType::LogicalNot | OperatorType::LogicalAnd => {
+                    Some(Type::Bool)
+                }
+                _ => None,
+            }
+        }
+        Tree::IdentifierExpression(name) => {
+            if let Tree::Name(name, _) = *name {
+                Some(state.namespace.get(&name)?.type_status().clone())
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
