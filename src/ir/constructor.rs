@@ -512,6 +512,11 @@ impl IRGraphConstructor {
                 OperatorType::NotEquals => current_block.register_node(Node::Equals(
                     BinaryOperationData::new(left_node, right_node),
                 )),
+                OperatorType::LowerEquals => current_block.register_node(Node::Higher(
+                    BinaryOperationData::new(left_node, right_node),
+                )),
+                OperatorType::HigherEquals => current_block
+                    .register_node(Node::Lower(BinaryOperationData::new(left_node, right_node))),
                 OperatorType::LogicalAnd => todo!(),
                 _ => unimplemented!("Unimplemented inverted operator {:?}", operator),
             }
