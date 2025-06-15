@@ -268,7 +268,7 @@ impl CodeGenerator {
             | Node::NotEquals(data)
             | Node::Lower(data)
             | Node::Higher(data) => {
-                code.push_str(&self.generate_comparison(block, data, registers));
+                code.push_str(&self.generate_comparison(block, data, ir_graph, registers));
             }
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
             Node::Phi(data) => {
@@ -353,10 +353,15 @@ impl CodeGenerator {
         &self,
         block: &Block,
         operation_data: &BinaryOperationData,
+        ir_graph: &IRGraph,
         registers: &Registers,
     ) -> String {
-        let left_value = registers.get(&operation_data.lhs()).unwrap();
-        let right_value = registers.get(&operation_data.rhs()).unwrap();
+        let left_value = registers
+            .get(&predecessor_skip_projection(ir_graph, operation_data.lhs()))
+            .unwrap();
+        let right_value = registers
+            .get(&predecessor_skip_projection(ir_graph, operation_data.rhs()))
+            .unwrap();
         let mut code = String::new();
         if !left_value.hardware_register() && !right_value.hardware_register() {
             code.push_str(&move_stack_variable(left_value));

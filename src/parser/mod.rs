@@ -132,8 +132,8 @@ fn parse_control(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 }
 
 fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
-    let type_token = expect_keyword(tokens, KeywordType::Int)
-        .ok_or(ParseError::Error("Expected keyword".to_string()))?;
+    let type_token =
+        expect_type(tokens).ok_or(ParseError::Error("Expected type keyword".to_string()))?;
     let identifier =
         expect_identifier(tokens).ok_or(ParseError::Error("Expected identifier".to_string()))?;
     let mut expression = None;
@@ -155,7 +155,7 @@ fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 fn parse_return(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     trace!("Parsing return: {:?}", tokens);
     let return_keyword = expect_keyword(tokens, KeywordType::Return)
-        .ok_or(ParseError::Error("Expected keyword".to_string()))?;
+        .ok_or(ParseError::Error("Expected keyword RETURN".to_string()))?;
     let expression = parse_expression(tokens)?;
     Ok(Tree::Return(
         expression,
@@ -165,13 +165,13 @@ fn parse_return(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 
 fn parse_break(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let break_keyword = expect_keyword(tokens, KeywordType::Break)
-        .ok_or(ParseError::Error("Expected keyword".to_string()))?;
+        .ok_or(ParseError::Error("Expected keyword BREAK".to_string()))?;
     Ok(Tree::Break(break_keyword.span()))
 }
 
 fn parse_continue(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let continue_keyword = expect_keyword(tokens, KeywordType::Continue)
-        .ok_or(ParseError::Error("Expected keyword".to_string()))?;
+        .ok_or(ParseError::Error("Expected keyword CONTINUE".to_string()))?;
     Ok(Tree::Continue(continue_keyword.span()))
 }
 
@@ -436,6 +436,16 @@ fn expect_identifier(tokens: &mut VecDeque<Token>) -> Option<Token> {
             Token::Identifier(_, _) => {
                 return tokens.pop_front();
             }
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn expect_type(tokens: &mut VecDeque<Token>) -> Option<Token> {
+    if let Some(token) = tokens.front() {
+        match token {
+            Token::Keyword(_, keyword_type) if keyword_type.is_type() => return tokens.pop_front(),
             _ => return None,
         }
     }
