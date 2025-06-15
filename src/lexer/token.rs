@@ -1,4 +1,4 @@
-use crate::util::span::Span;
+use crate::{parser::types::Type, util::span::Span};
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum KeywordType {
@@ -272,6 +272,17 @@ impl Token {
         match self {
             Self::Keyword(_, keyword_type) => keyword_type.is_type(),
             _ => false,
+        }
+    }
+
+    pub fn get_type_value(&self) -> Option<Type> {
+        match self {
+            Self::Keyword(_, keyword_type) if keyword_type.is_type() => match keyword_type {
+                KeywordType::Int => Some(Type::Int),
+                KeywordType::Bool => Some(Type::Bool),
+                _ => None,
+            },
+            _ => None,
         }
     }
 

@@ -279,7 +279,7 @@ impl CodeGenerator {
             }
             Node::BitwiseNegate(data) => {
                 let register = registers.get(&(block_index, data.input())).unwrap();
-                code.push_str(&format!("not {}", register.as_assembly()));
+                code.push_str(&format!("not {}\n", register.as_assembly()));
             }
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
             Node::Phi(data) => {}

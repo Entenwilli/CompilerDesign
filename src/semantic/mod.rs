@@ -1,5 +1,7 @@
 use std::{collections::HashMap, env::var};
 
+use tracing::trace;
+
 use crate::{
     lexer::token::{OperatorType, Token},
     parser::{ast::Tree, symbols::Name, types::Type},
@@ -157,6 +159,11 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                     .ok_or("Variable undefined!")?
                     .ne(&variable_type)
                 {
+                    trace!(
+                        "Initializer is {:?}",
+                        get_variable_type(present_initializer.clone(), state)
+                    );
+                    trace!("Variable should be {:?}", variable_type);
                     return Err("initializer must be of same type as variable".to_string());
                 }
                 analyze(present_initializer, state)?;

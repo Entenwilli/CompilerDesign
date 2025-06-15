@@ -146,7 +146,10 @@ fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
         expression = Some(parse_expression(tokens)?);
     }
     Ok(Tree::Declaration(
-        Box::new(Tree::Type(Type::Int, type_token.span())),
+        Box::new(Tree::Type(
+            type_token.get_type_value().unwrap(),
+            type_token.span(),
+        )),
         name(identifier)?,
         expression,
     ))
