@@ -170,15 +170,6 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             } else {
                 VariableStatus::new(variable_type.clone(), DeclarationStatus::Declared)
             };
-            if let Tree::Name(identifier, _) = *name {
-                let variable_status = state.namespace.get(&identifier);
-                if variable_status.is_some() {
-                    return Err(
-                        "Reinitializing or redeclaring variables are not allowed!".to_string()
-                    );
-                }
-                state.namespace.insert(identifier.clone(), variable_state);
-            }
             if let Some(present_initializer) = initializer {
                 if get_variable_type(present_initializer.clone(), state)
                     .ok_or("Variable undefined!")?
@@ -193,6 +184,15 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 }
                 analyze(present_initializer, state)?;
             };
+            if let Tree::Name(identifier, _) = *name {
+                let variable_status = state.namespace.get(&identifier);
+                if variable_status.is_some() {
+                    return Err(
+                        "Reinitializing or redeclaring variables are not allowed!".to_string()
+                    );
+                }
+                state.namespace.insert(identifier.clone(), variable_state);
+            }
             Ok(())
         }
         Tree::IdentifierExpression(identifier) => {
