@@ -80,6 +80,7 @@ pub enum DeclarationStatus {
 
 #[must_use]
 pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String> {
+    trace!("Analysing: {:?}", tree);
     match *tree {
         Tree::Literal(value, base, _) => {
             if base != 16 && base != 10 {
@@ -298,9 +299,11 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             analyze(rhs, state)
         }
         Tree::Block(statements, _) => {
+            let old_namespace = state.namespace.clone();
             for statement in statements {
                 analyze(Box::new(statement.clone()), state)?;
             }
+            state.namespace = old_namespace;
             Ok(())
         }
         Tree::LValueIdentifier(name) => analyze(name, state),
@@ -398,6 +401,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             if let Some(initializer_expression) = initializer {
                 analyze(initializer_expression, state)?;
             }
+            let old_namespace = state.namespace.clone();
             analyze(condition.clone(), state)?;
             if get_variable_type(condition, state)
                 .ok_or("Variable undefined!")?
@@ -406,14 +410,13 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 return Err("Condition must be a boolean".to_string());
             }
             if let Some(updater_expression) = updater {
-                let old_state = state.clone();
                 analyze(updater_expression, state)?;
-                *state = old_state;
             }
             state.enter_loop();
             analyze(expression, state)?;
             state.return_state = returning_state;
             state.exit_loop();
+            state.namespace = old_namespace;
             Ok(())
         }
     }
