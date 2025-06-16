@@ -57,11 +57,11 @@ fn main() {
         panic!("Result from parser is not a program tree!");
     }
     for ir_graph in ir_graphs.iter().clone() {
-        debug!("Constructed IR: {}", ir_graph);
+        info!("Constructed IR: {}", ir_graph);
     }
     let code_generator = CodeGenerator::new(ir_graphs);
     let assembler = code_generator.generate();
-    debug!("Assembler contents: {}", &assembler);
+    info!("Assembler contents: {}", &assembler);
     fs::write(temp.clone(), assembler).expect("Filesystem: Failed to write assembler output");
     info!(
         "Filesystem: Wrote assembler to {}",
