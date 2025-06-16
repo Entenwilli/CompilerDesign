@@ -5,7 +5,7 @@ use tracing::{debug, info, trace};
 
 use crate::{
     ir::{
-        block::{self, Block},
+        block::Block,
         graph::START_BLOCK,
         node::{
             binary_operation::BinaryOperationData,
@@ -14,7 +14,7 @@ use crate::{
     },
     lexer::token::{OperatorType, Token},
     parser::{ast::Tree, symbols::Name},
-    util::{int_parsing::parse_int, position},
+    util::int_parsing::parse_int,
 };
 
 use super::{
@@ -691,7 +691,7 @@ impl IRGraphConstructor {
         current_block.register_node(Node::ConstantInt(ConstantIntData::new(value)))
     }
 
-    fn create_constant_bool(&mut self, value: bool) -> NodeIndex {
+    fn _create_constant_bool(&mut self, value: bool) -> NodeIndex {
         let start_block = self.graph.get_block_mut(START_BLOCK);
         start_block.register_node(Node::ConstantBool(ConstantBoolData::new(value)))
     }

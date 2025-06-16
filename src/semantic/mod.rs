@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env::var, error::Error};
+use std::collections::HashMap;
 
 use tracing::trace;
 
@@ -261,7 +261,36 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                         return Err("Expression must be a integer".to_string());
                     }
                 }
-                _ => {}
+                OperatorType::Lower
+                | OperatorType::LowerEquals
+                | OperatorType::Equals
+                | OperatorType::NotEquals
+                | OperatorType::Higher
+                | OperatorType::HigherEquals => {
+                    let lhs_type =
+                        get_variable_type(lhs.clone(), state).ok_or("Variable undefined!")?;
+                    let rhs_type =
+                        get_variable_type(rhs.clone(), state).ok_or("Variable undefined!")?;
+                    if lhs_type.ne(&rhs_type) {
+                        return Err("Comparison operators must have equal types".to_string());
+                    }
+                }
+                OperatorType::Assign
+                | OperatorType::AssignMul
+                | OperatorType::AssignDiv
+                | OperatorType::AssignMod
+                | OperatorType::AssignMinus
+                | OperatorType::AssignShiftLeft
+                | OperatorType::AssignBitwiseOr
+                | OperatorType::AssignBitwiseNot
+                | OperatorType::AssignBitwiseAnd
+                | OperatorType::AssignBitwiseXor
+                | OperatorType::AssignShiftRight
+                | OperatorType::AssignPlus => {}
+                OperatorType::LogicalNot
+                | OperatorType::BitwiseNot
+                | OperatorType::TernaryColon
+                | OperatorType::TernaryQuestionMark => return Err("Invalid operator".to_string()),
             }
             analyze(lhs, state)?;
             analyze(rhs, state)

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use tracing::{debug, trace};
 
@@ -289,7 +289,7 @@ impl CodeGenerator {
                 code.push_str(&format!("not {}\n", register.as_32_bit_assembly()));
             }
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
-            Node::Phi(data) => {}
+            Node::Phi(_) => {}
             Node::Jump => {
                 trace!(
                     "Generating assembly for jump: {} with destination XXX",
@@ -457,7 +457,7 @@ impl CodeGenerator {
         block: &Block,
         block_index: BlockIndex,
         operation_data: &BinaryOperationData,
-        ir_graph: &IRGraph,
+        _ir_graph: &IRGraph,
         registers: &Registers,
     ) -> String {
         let left_value = registers
@@ -498,7 +498,7 @@ impl CodeGenerator {
         block: &Block,
         block_index: BlockIndex,
         data: &BinaryOperationData,
-        ir_graph: &IRGraph,
+        _ir_graph: &IRGraph,
         registers: &Registers,
         op_code: &str,
     ) -> String {
@@ -547,7 +547,7 @@ impl CodeGenerator {
         node_index: usize,
         block: &Block,
         block_index: BlockIndex,
-        ir_graph: &IRGraph,
+        _ir_graph: &IRGraph,
         data: &BinaryOperationData,
         registers: &Registers,
         op_code: &str,
@@ -593,9 +593,9 @@ impl CodeGenerator {
     pub fn generate_shift(
         &self,
         node_index: NodeIndex,
-        block: &Block,
+        _block: &Block,
         block_index: BlockIndex,
-        ir_graph: &IRGraph,
+        _ir_graph: &IRGraph,
         data: &BinaryOperationData,
         registers: &Registers,
         op_code: &str,
@@ -657,7 +657,7 @@ impl CodeGenerator {
     pub fn generate_constant_int(
         &self,
         constant_data: &ConstantIntData,
-        block: &Block,
+        _block: &Block,
         block_index: BlockIndex,
         registers: &Registers,
         node_index: NodeIndex,

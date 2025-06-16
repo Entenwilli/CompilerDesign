@@ -253,24 +253,13 @@ impl RegisterAllocator {
         if self.has_available_hardware_register() {
             let register = self.available_hardware_register.pop().unwrap();
             let register: Box<dyn Register> = Box::new(register);
-            self.handle_phi_register(node, ir_graph, &register);
             register
         } else {
             let register = StackRegister::new(self.current_stack_offset);
             self.current_stack_offset += 8;
             let boxed_register: Box<dyn Register> = Box::new(register);
-            self.handle_phi_register(node, ir_graph, &boxed_register);
             boxed_register
         }
-    }
-
-    pub fn handle_phi_register(
-        &mut self,
-        node_index: (BlockIndex, NodeIndex),
-        ir_graph: &IRGraph,
-        register: &Box<dyn Register>,
-    ) {
-        return;
     }
 
     pub fn has_available_hardware_register(&self) -> bool {
