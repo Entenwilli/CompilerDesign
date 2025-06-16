@@ -81,6 +81,7 @@ pub enum DeclarationStatus {
 #[must_use]
 pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String> {
     trace!("Analysing: {:?}", tree);
+    trace!("State: {:?}", state);
     match *tree {
         Tree::Literal(value, base, _) => {
             if base != 16 && base != 10 {
@@ -448,10 +449,23 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::For(initializer, condition, updater, expression, _) => {
-            let old_namespace = state.namespace.clone();
+            let mut old_namespace = state.namespace.clone();
             let returning_state = state.return_state.clone();
             if let Some(initializer_expression) = initializer {
                 analyze(initializer_expression, state)?;
+                for initialized_variable in state
+                    .namespace
+                    .iter()
+                    .filter(|v| old_namespace.contains_key(v.0))
+                    .filter(|v| v.1.declaration().eq(&DeclarationStatus::Initialized))
+                    .map(|v| v.0)
+                    .collect::<Vec<&Name>>()
+                {
+                    old_namespace
+                        .get_mut(initialized_variable)
+                        .unwrap()
+                        .set_initialized();
+                }
             }
             analyze(condition.clone(), state)?;
             if get_variable_type(condition, state)
