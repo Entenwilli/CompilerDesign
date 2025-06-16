@@ -352,6 +352,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             analyze(false_statement, state)
         }
         Tree::If(condition, expression, else_expression, _) => {
+            let returning_state = state.return_state.clone();
             analyze(condition.clone(), state)?;
             if get_variable_type(condition, state)
                 .ok_or("Variable undefined!")?
@@ -370,14 +371,15 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 {
                     state.return_state = ReturnState::Returning;
                 } else {
-                    state.return_state = ReturnState::NotReturing;
+                    state.return_state = returning_state;
                 }
             } else {
-                state.return_state = ReturnState::NotReturing;
+                state.return_state = returning_state;
             }
             Ok(())
         }
         Tree::While(condition, expression, _) => {
+            let returning_state = state.return_state.clone();
             analyze(condition.clone(), state)?;
             if get_variable_type(condition, state)
                 .ok_or("Variable undefined!")?
@@ -387,11 +389,12 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             }
             state.enter_loop();
             analyze(expression, state)?;
-            state.return_state = ReturnState::NotReturing;
+            state.return_state = returning_state;
             state.exit_loop();
             Ok(())
         }
         Tree::For(initializer, condition, updater, expression, _) => {
+            let returning_state = state.return_state.clone();
             if let Some(initializer_expression) = initializer {
                 analyze(initializer_expression, state)?;
             }
@@ -409,7 +412,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             }
             state.enter_loop();
             analyze(expression, state)?;
-            state.return_state = ReturnState::NotReturing;
+            state.return_state = returning_state;
             state.exit_loop();
             Ok(())
         }
