@@ -275,6 +275,47 @@ impl CodeGenerator {
                 let register = registers.get(&(block_index, data.input())).unwrap();
                 code.push_str(&format!("not {}\n", register.as_32_bit_assembly()));
             }
+            Node::Xor(data) => {
+                let lhs_register = registers.get(&(block_index, data.lhs())).unwrap();
+                let rhs_register = registers.get(&(block_index, data.rhs())).unwrap();
+                let destination = registers.get(&(block_index, node_index)).unwrap();
+
+                if !lhs_register.hardware_register() && !rhs_register.hardware_register() {
+                    code.push_str(&move_stack_variable(lhs_register));
+                    code.push_str(&format!(
+                        "xor {}, {}\n",
+                        HardwareRegister::Rbx.as_32_bit_assembly(),
+                        rhs_register.as_32_bit_assembly()
+                    ));
+                    code.push_str(&format!(
+                        "mov {}, {}\n",
+                        HardwareRegister::Rbx.as_32_bit_assembly(),
+                        destination.as_32_bit_assembly()
+                    ));
+                } else if lhs_register.hardware_register() {
+                    code.push_str(&format!(
+                        "xor {}, {}\n",
+                        lhs_register.as_32_bit_assembly(),
+                        rhs_register.as_32_bit_assembly()
+                    ));
+                    code.push_str(&format!(
+                        "mov {}, {}\n",
+                        lhs_register.as_32_bit_assembly(),
+                        destination.as_32_bit_assembly()
+                    ));
+                } else {
+                    code.push_str(&format!(
+                        "xor {}, {}\n",
+                        rhs_register.as_32_bit_assembly(),
+                        lhs_register.as_32_bit_assembly()
+                    ));
+                    code.push_str(&format!(
+                        "mov {}, {}\n",
+                        rhs_register.as_32_bit_assembly(),
+                        destination.as_32_bit_assembly()
+                    ));
+                }
+            }
             Node::ConstantBool(data) => code.push_str(&self.generate_constant_bool(data.value())),
             Node::Phi(_) => {}
             Node::Jump => {
