@@ -299,11 +299,14 @@ impl CodeGenerator {
                     jump_information
                 );
                 let following_block_index = jump_information.get(&node_index).unwrap();
+                let false_block_index = jump_information.get(&(node_index + 1)).unwrap();
                 let conditional_jump_code = self.generate_conditional_jump_rec(
+                    false,
                     node_index,
                     block,
                     block_index,
                     *following_block_index,
+                    *false_block_index,
                     ir_graph,
                     registers,
                 );
@@ -417,10 +420,12 @@ impl CodeGenerator {
 
     pub fn generate_conditional_jump_rec(
         &self,
+        inverted: bool,
         projection_index: usize,
         current_block: &Block,
         current_block_index: BlockIndex,
-        previous_block: usize,
+        jump_block_index: usize,
+        other_jump_block_index: usize,
         ir_graph: &IRGraph,
         registers: &Registers,
     ) -> Option<String> {
@@ -434,44 +439,60 @@ impl CodeGenerator {
         let comparison_node = current_block.get_node(comparision);
         match comparison_node {
             Node::LogicalNot(data) => {
-                let node = current_block.get_node(data.input());
-                code.push_str(&self.generate_conditional_jump(
-                    node,
+                code.push_str(&self.generate_conditional_jump_rec(
+                    !inverted,
                     data.input(),
                     current_block,
                     current_block_index,
-                    previous_block,
-                    self.get_inverted_jump_opcode(node),
+                    jump_block_index,
+                    other_jump_block_index,
                     ir_graph,
                     registers,
                 )?);
             }
             Node::And(data) => {
-                let lhs_node = current_block.get_node(data.lhs());
-                code.push_str(&self.generate_conditional_jump(
-                    lhs_node,
+                code.push_str(&self.generate_conditional_jump_rec(
+                    inverted,
                     data.lhs(),
                     current_block,
                     current_block_index,
-                    previous_block,
-                    self.get_jump_opcode(comparison_node),
+                    jump_block_index,
+                    other_jump_block_index,
                     ir_graph,
                     registers,
                 )?);
-                let rhs_node = current_block.get_node(data.rhs());
-                code.push_str(&self.generate_conditional_jump(
-                    rhs_node,
+                code.push_str(&self.generate_conditional_jump_rec(
+                    inverted,
                     data.rhs(),
                     current_block,
                     current_block_index,
-                    previous_block,
-                    self.get_jump_opcode(comparison_node),
+                    jump_block_index,
+                    other_jump_block_index,
                     ir_graph,
                     registers,
                 )?);
             }
-            Node::Or(_) => {
-                unimplemented!()
+            Node::Or(data) => {
+                code.push_str(&self.generate_conditional_jump_rec(
+                    !inverted,
+                    data.lhs(),
+                    current_block,
+                    current_block_index,
+                    other_jump_block_index,
+                    jump_block_index,
+                    ir_graph,
+                    registers,
+                )?);
+                code.push_str(&self.generate_conditional_jump_rec(
+                    !inverted,
+                    data.rhs(),
+                    current_block,
+                    current_block_index,
+                    other_jump_block_index,
+                    jump_block_index,
+                    ir_graph,
+                    registers,
+                )?);
             }
             Node::Lower(_)
             | Node::LowerEquals(_)
@@ -481,13 +502,18 @@ impl CodeGenerator {
             | Node::HigherEquals(_)
             | Node::Phi(_)
             | Node::ConstantInt(_) => {
+                let op_code = if inverted {
+                    self.get_inverted_jump_opcode(comparison_node)
+                } else {
+                    self.get_jump_opcode(comparison_node)
+                };
                 code.push_str(&self.generate_conditional_jump(
                     comparison_node,
                     comparision,
                     current_block,
                     current_block_index,
-                    previous_block,
-                    self.get_jump_opcode(comparison_node),
+                    jump_block_index,
+                    op_code,
                     ir_graph,
                     registers,
                 )?);
@@ -520,7 +546,7 @@ impl CodeGenerator {
             Node::HigherEquals(_) => "jl",
             Node::Higher(_) => "jle",
             Node::ConstantBool(_) => "jne",
-            Node::LogicalNot(_) => "je",
+            Node::LogicalNot(_) => "jne",
             Node::Phi(_) | Node::ConstantInt(_) => "jz",
             node => panic!("Invalid operation before conditional jump: {}", node),
         }
