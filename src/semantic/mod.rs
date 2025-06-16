@@ -356,6 +356,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
         }
         Tree::If(condition, expression, else_expression, _) => {
             let returning_state = state.return_state.clone();
+            let old_namespace = state.namespace.clone();
             analyze(condition.clone(), state)?;
             if get_variable_type(condition, state)
                 .ok_or("Variable undefined!")?
@@ -365,6 +366,8 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             }
             state.return_state = ReturnState::NotReturing;
             analyze(expression, state)?;
+            let true_namespace = state.namespace.clone();
+            state.namespace = old_namespace.clone();
             let if_return_state = state.return_state.clone();
             if let Some(other_expression) = else_expression {
                 state.return_state = ReturnState::NotReturing;
@@ -375,6 +378,26 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                     state.return_state = ReturnState::Returning;
                 } else {
                     state.return_state = returning_state;
+                }
+                let false_namespace = state.namespace.clone();
+                state.namespace = old_namespace;
+                for (initialized_variable, _) in true_namespace
+                    .iter()
+                    .filter(|(_, v)| v.declaration().eq(&DeclarationStatus::Initialized))
+                {
+                    if false_namespace.contains_key(initialized_variable)
+                        && false_namespace
+                            .get(initialized_variable)
+                            .unwrap()
+                            .declaration()
+                            .eq(&DeclarationStatus::Initialized)
+                    {
+                        state
+                            .namespace
+                            .get_mut(initialized_variable)
+                            .unwrap()
+                            .set_initialized();
+                    }
                 }
             } else {
                 state.return_state = returning_state;
