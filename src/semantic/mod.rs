@@ -38,7 +38,7 @@ impl AnalysisState {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 enum ReturnState {
     Returning,
     NotReturing,
@@ -360,9 +360,21 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             {
                 return Err("Condition must be a boolean".to_string());
             }
+            state.return_state = ReturnState::NotReturing;
             analyze(expression, state)?;
+            let if_return_state = state.return_state.clone();
             if let Some(other_expression) = else_expression {
+                state.return_state = ReturnState::NotReturing;
                 analyze(other_expression, state)?;
+                if state.return_state.eq(&ReturnState::Returning)
+                    && if_return_state.eq(&ReturnState::Returning)
+                {
+                    state.return_state = ReturnState::Returning;
+                } else {
+                    state.return_state = ReturnState::NotReturing;
+                }
+            } else {
+                state.return_state = ReturnState::NotReturing;
             }
             Ok(())
         }
