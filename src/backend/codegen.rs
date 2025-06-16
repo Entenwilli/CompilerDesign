@@ -810,11 +810,20 @@ impl CodeGenerator {
             left_value.as_32_bit_assembly()
         ));
         let destination = registers.get(&(block_index, node_index)).unwrap();
-        code.push_str(&format!(
-            "mov {}, {}\n",
-            left_value.as_32_bit_assembly(),
-            destination.as_32_bit_assembly()
-        ));
+        if !left_value.hardware_register() && !destination.hardware_register() {
+            code.push_str(&move_stack_variable(left_value));
+            code.push_str(&format!(
+                "mov {}, {}\n",
+                HardwareRegister::Rbx.as_32_bit_assembly(),
+                destination.as_32_bit_assembly(),
+            ));
+        } else {
+            code.push_str(&format!(
+                "mov {}, {}\n",
+                left_value.as_32_bit_assembly(),
+                destination.as_32_bit_assembly()
+            ));
+        }
         code
     }
 

@@ -8,7 +8,7 @@ use crate::{
     util::int_parsing::parse_int,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AnalysisState {
     return_state: ReturnState,
     namespace: HashMap<Name, VariableStatus>,
@@ -39,13 +39,13 @@ impl AnalysisState {
     }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 enum ReturnState {
     Returning,
     NotReturing,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct VariableStatus {
     type_status: Type,
     declaration_status: DeclarationStatus,
@@ -72,7 +72,7 @@ impl VariableStatus {
     }
 }
 
-#[derive(PartialEq, PartialOrd, Clone)]
+#[derive(PartialEq, PartialOrd, Clone, Debug)]
 pub enum DeclarationStatus {
     Declared,
     Initialized,
@@ -208,6 +208,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                     .unwrap()
                     .declaration()
                     .eq(&DeclarationStatus::Declared)
+                    && state.return_state.ne(&ReturnState::Returning)
                 {
                     return Err(format!(
                         "Uninitialized variable {} used in expression!",
@@ -378,6 +379,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             if let Some(other_expression) = else_expression {
                 state.return_state = ReturnState::NotReturing;
                 analyze(other_expression, state)?;
+                let else_return_state = state.return_state.clone();
                 if state.return_state.eq(&ReturnState::Returning)
                     && if_return_state.eq(&ReturnState::Returning)
                 {
@@ -387,6 +389,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 }
                 let false_namespace = state.namespace.clone();
                 state.namespace = old_namespace;
+                trace!("True: {:?}, False:{:?}", true_namespace, false_namespace);
                 for (initialized_variable, _) in true_namespace
                     .iter()
                     .filter(|(_, v)| v.declaration().eq(&DeclarationStatus::Initialized))
@@ -401,6 +404,22 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                         state
                             .namespace
                             .get_mut(initialized_variable)
+                            .unwrap()
+                            .set_initialized();
+                    }
+                    if else_return_state.eq(&ReturnState::Returning) {
+                        state
+                            .namespace
+                            .get_mut(initialized_variable)
+                            .unwrap()
+                            .set_initialized();
+                    }
+                }
+                if if_return_state.eq(&ReturnState::Returning) {
+                    for (initialized_variable, _) in false_namespace {
+                        state
+                            .namespace
+                            .get_mut(&initialized_variable)
                             .unwrap()
                             .set_initialized();
                     }
