@@ -329,20 +329,22 @@ impl IRGraphConstructor {
                 let mut true_block = Block::new("ternary-true".to_string());
                 true_block.register_entry_point(self.current_block_index, true_projection);
                 self.seal_block(self.current_block_index);
+                let mut following_block = Block::new("ternary-following".to_string());
 
                 let false_block_index = self.graph.register_block(false_block);
                 self.current_block_index = false_block_index;
                 let false_expression = self.convert_boxed(false_value)?;
                 let false_jump = self.create_jump();
+                following_block.register_entry_point(self.current_block_index, false_jump);
+                self.seal_block(false_block_index);
 
                 let true_block_index = self.graph.register_block(true_block);
                 self.current_block_index = true_block_index;
                 let true_expression = self.convert_boxed(true_value)?;
                 let true_jump = self.create_jump();
+                following_block.register_entry_point(self.current_block_index, true_jump);
+                self.seal_block(true_block_index);
 
-                let mut following_block = Block::new("ternary-following".to_string());
-                following_block.register_entry_point(false_block_index, false_jump);
-                following_block.register_entry_point(true_block_index, true_jump);
                 self.current_block_index = self.graph.register_block(following_block);
                 self.seal_block(true_block_index);
                 self.seal_block(false_block_index);
