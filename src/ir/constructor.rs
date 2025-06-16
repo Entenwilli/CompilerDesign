@@ -336,6 +336,8 @@ impl IRGraphConstructor {
                 let mut loop_body = Block::new("while-body".to_string());
                 loop_body.register_entry_point(self.current_block_index, entry_false_projection);
                 let loop_body_index = self.graph.register_block(loop_body);
+                let loop_back_block = Block::new("while-condition".to_string());
+                let loop_back_block_index = self.graph.register_block(loop_back_block);
                 let mut following_block = Block::new("while-following".to_string());
                 following_block
                     .register_entry_point(self.current_block_index, entry_true_projection);
@@ -343,10 +345,18 @@ impl IRGraphConstructor {
                 self.seal_block(self.current_block_index);
 
                 self.current_block_index = loop_body_index;
-                self.active_loop_entries.push(loop_body_index);
+                self.active_loop_entries.push(loop_back_block_index);
                 self.active_loop_exits.push(following_block_index);
                 self.convert_boxed(expression);
+                let loop_body_jump = self.create_jump();
+                self.graph
+                    .get_block_mut(loop_back_block_index)
+                    .register_entry_point(loop_body_index, loop_body_jump);
+                self.active_loop_entries.pop();
+                self.active_loop_exits.pop();
 
+                self.current_block_index = loop_back_block_index;
+                self.seal_block(loop_back_block_index);
                 let condition_node = self.convert_boxed(condition)?;
                 let conditional_jump = self.create_conditional_jump(condition_node);
 
@@ -355,11 +365,11 @@ impl IRGraphConstructor {
 
                 self.graph
                     .get_block_mut(loop_body_index)
-                    .register_entry_point(loop_body_index, true_projection);
+                    .register_entry_point(loop_back_block_index, true_projection);
 
                 self.graph
                     .get_block_mut(following_block_index)
-                    .register_entry_point(loop_body_index, false_projection);
+                    .register_entry_point(loop_back_block_index, false_projection);
                 self.seal_block(loop_body_index);
                 self.current_block_index = following_block_index;
                 self.seal_block(self.current_block_index);

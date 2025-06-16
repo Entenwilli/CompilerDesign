@@ -1,4 +1,4 @@
-use crate::ir::{block::NodeIndex, graph::BlockIndex};
+use crate::ir::block::NodeIndex;
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct BinaryOperationData {

@@ -5,10 +5,7 @@ use tracing::trace;
 
 use crate::{
     parser::error::ParseError,
-    util::{
-        position::{self, Position},
-        span::Span,
-    },
+    util::{position::Position, span::Span},
 };
 
 pub mod token;
