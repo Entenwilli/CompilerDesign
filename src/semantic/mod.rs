@@ -118,19 +118,12 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 if let Tree::Name(name, _) = *identifier {
                     if let Token::Operator(_, operator_type) = operator {
                         if let OperatorType::Assign = operator_type {
+                            trace!("Variable {:?} is now defined!", name);
                             state
                                 .namespace
                                 .get(&name)
                                 .ok_or(format!("Undeclared variable {}!", name.as_string()))?;
-                            if state
-                                .namespace
-                                .get(&name)
-                                .unwrap()
-                                .declaration()
-                                .ne(&DeclarationStatus::Initialized)
-                            {
-                                state.namespace.get_mut(&name).unwrap().set_initialized();
-                            }
+                            state.namespace.get_mut(&name).unwrap().set_initialized();
                             let expression_type = get_variable_type(expression.clone(), state)
                                 .ok_or("Variable undefined!")?;
                             if state
@@ -309,9 +302,22 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             analyze(rhs, state)
         }
         Tree::Block(statements, _) => {
-            let old_namespace = state.namespace.clone();
+            let mut old_namespace = state.namespace.clone();
             for statement in statements {
                 analyze(Box::new(statement.clone()), state)?;
+            }
+            for initialized_variable in state
+                .namespace
+                .iter()
+                .filter(|v| old_namespace.contains_key(v.0))
+                .filter(|v| v.1.declaration().eq(&DeclarationStatus::Initialized))
+                .map(|v| v.0)
+                .collect::<Vec<&Name>>()
+            {
+                old_namespace
+                    .get_mut(initialized_variable)
+                    .unwrap()
+                    .set_initialized();
             }
             state.namespace = old_namespace;
             Ok(())
