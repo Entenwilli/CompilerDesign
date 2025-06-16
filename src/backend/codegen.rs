@@ -262,20 +262,12 @@ impl CodeGenerator {
                     "sar",
                 ));
             }
-            Node::Equals(data)
-            | Node::HigherEquals(data)
-            | Node::LowerEquals(data)
-            | Node::NotEquals(data)
-            | Node::Lower(data)
-            | Node::Higher(data) => {
-                code.push_str(&self.generate_comparison(
-                    block,
-                    block_index,
-                    data,
-                    ir_graph,
-                    registers,
-                ));
-            }
+            Node::Equals(_)
+            | Node::HigherEquals(_)
+            | Node::LowerEquals(_)
+            | Node::NotEquals(_)
+            | Node::Lower(_)
+            | Node::Higher(_) => {}
             Node::LogicalNot(data) => {
                 let register = registers.get(&(block_index, data.input())).unwrap();
                 code.push_str(&format!(
@@ -317,6 +309,7 @@ impl CodeGenerator {
                     block,
                     block_index,
                     *following_block_index,
+                    ir_graph,
                     registers,
                 );
                 code.push_str(&self.generate_phi_moves(
@@ -414,12 +407,26 @@ impl CodeGenerator {
         code
     }
 
+    pub fn generate_condition_for_jump(
+        &self,
+        block: &Block,
+        block_index: BlockIndex,
+        data: &BinaryOperationData,
+        ir_graph: &IRGraph,
+        registers: &Registers,
+    ) -> String {
+        let mut code = String::new();
+        code.push_str(&self.generate_comparison(block, block_index, data, ir_graph, registers));
+        code
+    }
+
     pub fn generate_conditional_jump(
         &self,
         projection_index: usize,
         current_block: &Block,
         current_block_index: BlockIndex,
         previous_block: usize,
+        ir_graph: &IRGraph,
         registers: &Registers,
     ) -> Option<String> {
         let mut code = String::new();
@@ -430,13 +437,31 @@ impl CodeGenerator {
             .predecessors()
             .get(0)
             .unwrap();
+        let comparison_node = current_block.get_node(comparision);
+        match comparison_node {
+            Node::Lower(data)
+            | Node::LowerEquals(data)
+            | Node::Equals(data)
+            | Node::NotEquals(data)
+            | Node::Higher(data)
+            | Node::HigherEquals(data) => {
+                code.push_str(&self.generate_condition_for_jump(
+                    current_block,
+                    current_block_index,
+                    data,
+                    ir_graph,
+                    registers,
+                ));
+            }
+            _ => {}
+        }
         let op_code = match current_block.get_node(comparision) {
-            Node::Lower(_) => "jb",
-            Node::LowerEquals(_) => "jbe",
+            Node::Lower(_) => "jl",
+            Node::LowerEquals(_) => "jle",
             Node::Equals(_) => "je",
             Node::NotEquals(_) => "jne",
-            Node::HigherEquals(_) => "jae",
-            Node::Higher(_) => "ja",
+            Node::HigherEquals(_) => "jge",
+            Node::Higher(_) => "jg",
             Node::ConstantBool(_) => "je",
             Node::BitwiseNegate(_) => "jne",
             Node::LogicalNot(_) => "je",
