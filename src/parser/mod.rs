@@ -143,7 +143,9 @@ fn parse_decleration(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
         .unwrap()
         .is_operator_type(&OperatorType::Assign)
     {
-        expect_operator(tokens, OperatorType::Assign);
+        expect_operator(tokens, OperatorType::Assign).ok_or(ParseError::Error(
+            "Expected assignment operator".to_string(),
+        ))?;
         expression = Some(parse_expression(tokens)?);
     }
     Ok(Tree::Declaration(
@@ -182,13 +184,17 @@ fn parse_continue(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 fn parse_for(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let keyword = expect_keyword(tokens, KeywordType::For)
         .ok_or(ParseError::Error("Expected keyword IF".to_string()))?;
-    expect_seperator(tokens, SeperatorType::ParenOpen);
+    expect_seperator(tokens, SeperatorType::ParenOpen)
+        .ok_or(ParseError::Error("Expected paren open".to_string()))?;
     let initializer = parse_simple(tokens).ok();
-    expect_seperator(tokens, SeperatorType::Semicolon);
+    expect_seperator(tokens, SeperatorType::Semicolon)
+        .ok_or(ParseError::Error("Expected Semicolon".to_string()))?;
     let expression = parse_expression(tokens)?;
-    expect_seperator(tokens, SeperatorType::Semicolon);
+    expect_seperator(tokens, SeperatorType::Semicolon)
+        .ok_or(ParseError::Error("Expected Semicolon".to_string()))?;
     let updating_expression = parse_simple(tokens).ok();
-    expect_seperator(tokens, SeperatorType::ParenClose);
+    expect_seperator(tokens, SeperatorType::ParenClose)
+        .ok_or(ParseError::Error("Expected paren close".to_string()))?;
     let statement = parse_statement(tokens)?;
     let span = keyword.span().merge(statement.span());
     Ok(Tree::For(
@@ -203,9 +209,11 @@ fn parse_for(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 fn parse_while(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let keyword = expect_keyword(tokens, KeywordType::While)
         .ok_or(ParseError::Error("Expected keyword WHILE".to_string()))?;
-    expect_seperator(tokens, SeperatorType::ParenOpen);
+    expect_seperator(tokens, SeperatorType::ParenOpen)
+        .ok_or(ParseError::Error("Expected paren open".to_string()))?;
     let expression = parse_expression(tokens)?;
-    expect_seperator(tokens, SeperatorType::ParenClose);
+    expect_seperator(tokens, SeperatorType::ParenClose)
+        .ok_or(ParseError::Error("Expected paren close".to_string()))?;
     let statement = parse_statement(tokens)?;
     let span = keyword.span().merge(statement.span());
     Ok(Tree::While(expression, Box::new(statement), span))
@@ -214,9 +222,11 @@ fn parse_while(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 fn parse_if(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
     let keyword = expect_keyword(tokens, KeywordType::If)
         .ok_or(ParseError::Error("Expected keyword IF".to_string()))?;
-    expect_seperator(tokens, SeperatorType::ParenOpen);
+    expect_seperator(tokens, SeperatorType::ParenOpen)
+        .ok_or(ParseError::Error("Expected paren open".to_string()))?;
     let expression = parse_expression(tokens)?;
-    expect_seperator(tokens, SeperatorType::ParenClose);
+    expect_seperator(tokens, SeperatorType::ParenClose)
+        .ok_or(ParseError::Error("Expected paren close".to_string()))?;
     let statement = parse_statement(tokens)?;
     if tokens.front().unwrap().is_keyword(&KeywordType::Else) {
         consume(tokens);
@@ -286,7 +296,8 @@ fn parse_expression(tokens: &mut VecDeque<Token>) -> Result<Box<Tree>, ParseErro
     }
     consume(tokens);
     let true_expression = parse_expression(tokens)?;
-    expect_operator(tokens, OperatorType::TernaryColon);
+    expect_operator(tokens, OperatorType::TernaryColon)
+        .ok_or(ParseError::Error("Expected ternary colon!".to_string()))?;
     let false_expression = parse_expression(tokens)?;
     Ok(Box::new(Tree::TernaryOperation(
         lhs,
@@ -398,6 +409,7 @@ fn name(identifier: Token) -> Result<Box<Tree>, ParseError> {
     Err(ParseError::Error("Expected identifier as name".to_string()))
 }
 
+#[must_use]
 fn expect_keyword(tokens: &mut VecDeque<Token>, keyword: KeywordType) -> Option<Token> {
     if let Some(token) = tokens.front() {
         match token {
@@ -410,6 +422,7 @@ fn expect_keyword(tokens: &mut VecDeque<Token>, keyword: KeywordType) -> Option<
     None
 }
 
+#[must_use]
 fn expect_seperator(tokens: &mut VecDeque<Token>, seperator: SeperatorType) -> Option<Token> {
     if let Some(token) = tokens.front() {
         match token {
@@ -422,6 +435,7 @@ fn expect_seperator(tokens: &mut VecDeque<Token>, seperator: SeperatorType) -> O
     None
 }
 
+#[must_use]
 fn expect_operator(tokens: &mut VecDeque<Token>, operator: OperatorType) -> Option<Token> {
     if let Some(token) = tokens.front() {
         match token {
@@ -434,6 +448,7 @@ fn expect_operator(tokens: &mut VecDeque<Token>, operator: OperatorType) -> Opti
     None
 }
 
+#[must_use]
 fn expect_identifier(tokens: &mut VecDeque<Token>) -> Option<Token> {
     if let Some(token) = tokens.front() {
         match token {
