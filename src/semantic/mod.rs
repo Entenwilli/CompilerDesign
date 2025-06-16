@@ -8,6 +8,7 @@ use crate::{
     util::int_parsing::parse_int,
 };
 
+#[derive(Clone)]
 pub struct AnalysisState {
     return_state: ReturnState,
     namespace: HashMap<Name, VariableStatus>,
@@ -44,6 +45,7 @@ enum ReturnState {
     NotReturing,
 }
 
+#[derive(Clone)]
 pub struct VariableStatus {
     type_status: Type,
     declaration_status: DeclarationStatus,
@@ -70,7 +72,7 @@ impl VariableStatus {
     }
 }
 
-#[derive(PartialEq, PartialOrd)]
+#[derive(PartialEq, PartialOrd, Clone)]
 pub enum DeclarationStatus {
     Declared,
     Initialized,
@@ -298,9 +300,6 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
         Tree::Block(statements, _) => {
             for statement in statements {
                 analyze(Box::new(statement.clone()), state)?;
-                if let Tree::Return(_, _) = statement {
-                    break;
-                }
             }
             Ok(())
         }
@@ -404,7 +403,9 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 return Err("Condition must be a boolean".to_string());
             }
             if let Some(updater_expression) = updater {
+                let old_state = state.clone();
                 analyze(updater_expression, state)?;
+                *state = old_state;
             }
             state.enter_loop();
             analyze(expression, state)?;
