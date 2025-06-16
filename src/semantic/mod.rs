@@ -308,9 +308,11 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             analyze(rhs, state)
         }
         Tree::Block(statements, _) => {
+            let old_namespace = state.namespace.clone();
             for statement in statements {
                 analyze(Box::new(statement.clone()), state)?;
             }
+            state.namespace = old_namespace;
             Ok(())
         }
         Tree::LValueIdentifier(name) => analyze(name, state),
@@ -395,6 +397,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                     .filter(|(_, v)| v.declaration().eq(&DeclarationStatus::Initialized))
                 {
                     if false_namespace.contains_key(initialized_variable)
+                        && state.namespace.contains_key(initialized_variable)
                         && false_namespace
                             .get(initialized_variable)
                             .unwrap()
@@ -445,11 +448,11 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             Ok(())
         }
         Tree::For(initializer, condition, updater, expression, _) => {
+            let old_namespace = state.namespace.clone();
             let returning_state = state.return_state.clone();
             if let Some(initializer_expression) = initializer {
                 analyze(initializer_expression, state)?;
             }
-            let old_namespace = state.namespace.clone();
             analyze(condition.clone(), state)?;
             if get_variable_type(condition, state)
                 .ok_or("Variable undefined!")?
@@ -458,7 +461,12 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 return Err("Condition must be a boolean".to_string());
             }
             if let Some(updater_expression) = updater {
+                let names = state.namespace.iter().map(|v| v.0).len();
                 analyze(updater_expression, state)?;
+                let additional_names = state.namespace.iter().map(|v| v.0).len();
+                if names != additional_names {
+                    return Err("Updater Expression cannot define variables".to_string());
+                }
             }
             state.enter_loop();
             analyze(expression, state)?;
