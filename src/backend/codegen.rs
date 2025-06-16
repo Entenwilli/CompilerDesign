@@ -267,15 +267,10 @@ impl CodeGenerator {
             | Node::LowerEquals(_)
             | Node::NotEquals(_)
             | Node::Lower(_)
-            | Node::Higher(_) => {}
-            Node::LogicalNot(data) => {
-                let register = registers.get(&(block_index, data.input())).unwrap();
-                code.push_str(&format!(
-                    "test {}, {}\n",
-                    register.as_32_bit_assembly(),
-                    register.as_32_bit_assembly()
-                ));
-            }
+            | Node::Higher(_)
+            | Node::LogicalNot(_)
+            | Node::And(_)
+            | Node::Or(_) => {}
             Node::BitwiseNegate(data) => {
                 let register = registers.get(&(block_index, data.input())).unwrap();
                 code.push_str(&format!("not {}\n", register.as_32_bit_assembly()));
@@ -304,7 +299,7 @@ impl CodeGenerator {
                     jump_information
                 );
                 let following_block_index = jump_information.get(&node_index).unwrap();
-                let conditional_jump_code = self.generate_conditional_jump(
+                let conditional_jump_code = self.generate_conditional_jump_rec(
                     node_index,
                     block,
                     block_index,
@@ -420,7 +415,7 @@ impl CodeGenerator {
         code
     }
 
-    pub fn generate_conditional_jump(
+    pub fn generate_conditional_jump_rec(
         &self,
         projection_index: usize,
         current_block: &Block,
@@ -430,7 +425,6 @@ impl CodeGenerator {
         registers: &Registers,
     ) -> Option<String> {
         let mut code = String::new();
-        let true_label = self.jump_label.get(&previous_block).unwrap();
         let projection = current_block.get_node(projection_index);
         let comparision = *current_block
             .get_node(*projection.predecessors().get(0).unwrap())
@@ -439,6 +433,113 @@ impl CodeGenerator {
             .unwrap();
         let comparison_node = current_block.get_node(comparision);
         match comparison_node {
+            Node::LogicalNot(data) => {
+                let node = current_block.get_node(data.input());
+                code.push_str(&self.generate_conditional_jump(
+                    node,
+                    data.input(),
+                    current_block,
+                    current_block_index,
+                    previous_block,
+                    self.get_inverted_jump_opcode(node),
+                    ir_graph,
+                    registers,
+                )?);
+            }
+            Node::And(data) => {
+                let lhs_node = current_block.get_node(data.lhs());
+                code.push_str(&self.generate_conditional_jump(
+                    lhs_node,
+                    data.lhs(),
+                    current_block,
+                    current_block_index,
+                    previous_block,
+                    self.get_jump_opcode(comparison_node),
+                    ir_graph,
+                    registers,
+                )?);
+                let rhs_node = current_block.get_node(data.rhs());
+                code.push_str(&self.generate_conditional_jump(
+                    rhs_node,
+                    data.rhs(),
+                    current_block,
+                    current_block_index,
+                    previous_block,
+                    self.get_jump_opcode(comparison_node),
+                    ir_graph,
+                    registers,
+                )?);
+            }
+            Node::Or(_) => {
+                unimplemented!()
+            }
+            Node::Lower(_)
+            | Node::LowerEquals(_)
+            | Node::Equals(_)
+            | Node::NotEquals(_)
+            | Node::Higher(_)
+            | Node::HigherEquals(_)
+            | Node::Phi(_)
+            | Node::ConstantInt(_) => {
+                code.push_str(&self.generate_conditional_jump(
+                    comparison_node,
+                    comparision,
+                    current_block,
+                    current_block_index,
+                    previous_block,
+                    self.get_jump_opcode(comparison_node),
+                    ir_graph,
+                    registers,
+                )?);
+            }
+            _ => {}
+        }
+        Some(code)
+    }
+
+    pub fn get_jump_opcode(&self, comparision: &Node) -> &str {
+        match comparision {
+            Node::Lower(_) => "jl",
+            Node::LowerEquals(_) => "jle",
+            Node::Equals(_) => "je",
+            Node::NotEquals(_) => "jne",
+            Node::HigherEquals(_) => "jge",
+            Node::Higher(_) => "jg",
+            Node::ConstantBool(_) => "je",
+            Node::LogicalNot(_) => "je",
+            Node::Phi(_) | Node::ConstantInt(_) => "jnz",
+            node => panic!("Invalid operation before conditional jump: {}", node),
+        }
+    }
+    pub fn get_inverted_jump_opcode(&self, comparision: &Node) -> &str {
+        match comparision {
+            Node::Lower(_) => "jge",
+            Node::LowerEquals(_) => "jg",
+            Node::Equals(_) => "jne",
+            Node::NotEquals(_) => "je",
+            Node::HigherEquals(_) => "jl",
+            Node::Higher(_) => "jle",
+            Node::ConstantBool(_) => "jne",
+            Node::LogicalNot(_) => "je",
+            Node::Phi(_) | Node::ConstantInt(_) => "jz",
+            node => panic!("Invalid operation before conditional jump: {}", node),
+        }
+    }
+
+    pub fn generate_conditional_jump(
+        &self,
+        comparision: &Node,
+        comparision_index: NodeIndex,
+        current_block: &Block,
+        current_block_index: BlockIndex,
+        jump_target: BlockIndex,
+        op_code: &str,
+        ir_graph: &IRGraph,
+        registers: &Registers,
+    ) -> Option<String> {
+        let mut code = String::new();
+        let jump_label = self.jump_label.get(&jump_target).unwrap();
+        match comparision {
             Node::Lower(data)
             | Node::LowerEquals(data)
             | Node::Equals(data)
@@ -453,27 +554,15 @@ impl CodeGenerator {
                     registers,
                 ));
             }
+            Node::Phi(_) | Node::ConstantInt(_) => {
+                let register = registers
+                    .get(&(current_block_index, comparision_index))
+                    .unwrap();
+                code.push_str(&format!("test $0x1, {}\n", register.as_32_bit_assembly()));
+            }
             _ => {}
         }
-        let op_code = match current_block.get_node(comparision) {
-            Node::Lower(_) => "jl",
-            Node::LowerEquals(_) => "jle",
-            Node::Equals(_) => "je",
-            Node::NotEquals(_) => "jne",
-            Node::HigherEquals(_) => "jge",
-            Node::Higher(_) => "jg",
-            Node::ConstantBool(_) => "je",
-            Node::BitwiseNegate(_) => "jne",
-            Node::LogicalNot(_) => "je",
-            Node::Phi(_) | Node::ConstantInt(_) => {
-                let register = registers.get(&(current_block_index, comparision)).unwrap();
-                code.push_str(&format!("test $0x1, {}\n", register.as_32_bit_assembly()));
-                code.push_str(&format!("jnz {}\n", true_label));
-                return Some(code);
-            }
-            node => panic!("Invalid operation before conditional jump: {}", node),
-        };
-        code.push_str(&format!("{} {}\n", op_code, true_label));
+        code.push_str(&format!("{} {}\n", op_code, jump_label));
         Some(code)
     }
 
