@@ -418,25 +418,25 @@ impl IRGraphConstructor {
                 let mut true_block = Block::new("if-true".to_string());
                 true_block.register_entry_point(self.current_block_index, true_projection);
                 self.seal_block(self.current_block_index);
+                let mut following_block = Block::new("if-following".to_string());
 
                 let false_block_index = self.graph.register_block(false_block);
+                self.seal_block(false_block_index);
                 self.current_block_index = false_block_index;
                 if let Some(else_statements) = else_body {
                     self.convert_boxed(else_statements);
                 }
                 let false_jump = self.create_jump();
+                following_block.register_entry_point(self.current_block_index, false_jump);
 
                 let true_block_index = self.graph.register_block(true_block);
+                self.seal_block(true_block_index);
                 self.current_block_index = true_block_index;
                 self.convert_boxed(body);
                 let true_jump = self.create_jump();
+                following_block.register_entry_point(self.current_block_index, true_jump);
 
-                let mut following_block = Block::new("if-following".to_string());
-                following_block.register_entry_point(false_block_index, false_jump);
-                following_block.register_entry_point(true_block_index, true_jump);
                 self.current_block_index = self.graph.register_block(following_block);
-                self.seal_block(false_block_index);
-                self.seal_block(true_block_index);
                 self.seal_block(self.current_block_index);
                 None
             }
