@@ -289,7 +289,15 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                 | OperatorType::AssignBitwiseAnd
                 | OperatorType::AssignBitwiseXor
                 | OperatorType::AssignShiftRight
-                | OperatorType::AssignPlus => {}
+                | OperatorType::AssignPlus => {
+                    let lhs_type =
+                        get_variable_type(lhs.clone(), state).ok_or("Variable undefined!")?;
+                    let rhs_type =
+                        get_variable_type(rhs.clone(), state).ok_or("Variable undefined!")?;
+                    if lhs_type.ne(&rhs_type) {
+                        return Err("Comparison operators must have equal types".to_string());
+                    }
+                }
                 OperatorType::LogicalNot
                 | OperatorType::BitwiseNot
                 | OperatorType::TernaryColon
