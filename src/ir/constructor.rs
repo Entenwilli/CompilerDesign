@@ -127,6 +127,36 @@ impl IRGraphConstructor {
                                     let desugar = self.create_div_mod_projection(mod_node);
                                     self.write_variable(name, self.current_block_index, desugar);
                                 }
+                                OperatorType::AssignShiftLeft => {
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
+                                    let desugar = self.create_shift_left(lhs, rhs);
+                                    self.write_variable(name, self.current_block_index, desugar);
+                                }
+                                OperatorType::AssignShiftRight => {
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
+                                    let desugar = self.create_shift_right(lhs, rhs);
+                                    self.write_variable(name, self.current_block_index, desugar);
+                                }
+                                OperatorType::AssignBitwiseOr => {
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
+                                    let desugar = self.create_or(lhs, rhs);
+                                    self.write_variable(name, self.current_block_index, desugar);
+                                }
+                                OperatorType::AssignBitwiseAnd => {
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
+                                    let desugar = self.create_and(lhs, rhs);
+                                    self.write_variable(name, self.current_block_index, desugar);
+                                }
+                                OperatorType::AssignBitwiseXor => {
+                                    let lhs =
+                                        self.read_variable(name.clone(), self.current_block_index);
+                                    let desugar = self.create_xor(lhs, rhs);
+                                    self.write_variable(name, self.current_block_index, desugar);
+                                }
                                 OperatorType::Assign => {
                                     self.write_variable(name, self.current_block_index, rhs);
                                 }
