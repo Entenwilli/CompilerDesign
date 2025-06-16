@@ -296,12 +296,12 @@ impl IRGraphConstructor {
                 );
                 let jump = self.create_jump();
                 self.graph
-                    .get_block_mut(*self.active_loop_exits.first().unwrap())
+                    .get_block_mut(*self.active_loop_exits.last().unwrap())
                     .register_entry_point(self.current_block_index, jump);
                 debug!(
                     "Modifying entry_points of {:?}",
                     self.graph
-                        .get_block_mut(*self.active_loop_exits.first().unwrap())
+                        .get_block_mut(*self.active_loop_exits.last().unwrap())
                 );
                 None
             }
@@ -312,7 +312,7 @@ impl IRGraphConstructor {
                 );
                 let jump = self.create_jump();
                 self.graph
-                    .get_block_mut(*self.active_loop_entries.first().unwrap())
+                    .get_block_mut(*self.active_loop_entries.last().unwrap())
                     .register_entry_point(self.current_block_index, jump);
                 None
             }

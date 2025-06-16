@@ -474,6 +474,11 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             {
                 return Err("Condition must be a boolean".to_string());
             }
+            state.enter_loop();
+            analyze(expression, state)?;
+            state.return_state = returning_state;
+            state.exit_loop();
+
             if let Some(updater_expression) = updater {
                 let names = state.namespace.iter().map(|v| v.0).len();
                 analyze(updater_expression, state)?;
@@ -482,10 +487,6 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
                     return Err("Updater Expression cannot define variables".to_string());
                 }
             }
-            state.enter_loop();
-            analyze(expression, state)?;
-            state.return_state = returning_state;
-            state.exit_loop();
             state.namespace = old_namespace;
             Ok(())
         }
