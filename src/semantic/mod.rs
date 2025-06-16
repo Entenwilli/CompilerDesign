@@ -307,11 +307,9 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             analyze(rhs, state)
         }
         Tree::Block(statements, _) => {
-            let old_namespace = state.namespace.clone();
             for statement in statements {
                 analyze(Box::new(statement.clone()), state)?;
             }
-            state.namespace = old_namespace;
             Ok(())
         }
         Tree::LValueIdentifier(name) => analyze(name, state),
