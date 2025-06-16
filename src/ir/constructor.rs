@@ -55,7 +55,7 @@ impl IRGraphConstructor {
     }
 
     pub fn convert(&mut self, tree: Tree) -> Option<NodeIndex> {
-        debug!("Converting AST {} to IR!", tree);
+        debug!("Converting AST {:?} to IR!", tree);
         match tree {
             Tree::Program(_) => {
                 unimplemented!("Program Trees cannot be parsed to a single IR Representation!")
@@ -351,7 +351,8 @@ impl IRGraphConstructor {
                 let loop_body_jump = self.create_jump();
                 self.graph
                     .get_block_mut(loop_back_block_index)
-                    .register_entry_point(loop_body_index, loop_body_jump);
+                    .register_entry_point(self.current_block_index, loop_body_jump);
+                self.seal_block(self.current_block_index);
                 self.active_loop_entries.pop();
                 self.active_loop_exits.pop();
 
@@ -442,10 +443,11 @@ impl IRGraphConstructor {
                 self.active_loop_entries.pop();
                 self.active_loop_exits.pop();
                 let loop_body_exit = self.create_jump();
+                self.seal_block(self.current_block_index);
 
                 self.graph
                     .get_block_mut(loop_post_index)
-                    .register_entry_point(loop_body_index, loop_body_exit);
+                    .register_entry_point(self.current_block_index, loop_body_exit);
                 self.current_block_index = loop_post_index;
                 self.seal_block(loop_post_index);
 
@@ -734,12 +736,13 @@ impl IRGraphConstructor {
             .map(|(v1, v2)| (v1, *v2))
             .collect();
         trace!("Creating phi with operands {:?}", operands);
-        let current_block = self.graph.get_block_mut(self.current_block_index);
+        let current_block = self.graph.get_block_mut(block_index);
         current_block.register_node(Node::Phi(PhiData::new(operands)))
     }
 
     fn create_phi_variable_operands(
         &mut self,
+        phi: usize,
         block_index: BlockIndex,
         variable: Name,
     ) -> NodeIndex {
@@ -758,8 +761,13 @@ impl IRGraphConstructor {
             variable,
             operands
         );
-        let current_block = self.graph.get_block_mut(block_index);
-        current_block.register_node(Node::Phi(PhiData::new(operands)))
+
+        if let Node::Phi(data) = self.graph.get_block_mut(block_index).get_node_mut(phi) {
+            for operand in operands {
+                data.add_operand(operand);
+            }
+        }
+        phi
     }
 
     fn create_div_mod_projection(&mut self, input: NodeIndex) -> NodeIndex {
@@ -868,29 +876,39 @@ impl IRGraphConstructor {
             // The value for the variable can come from multiple previous blocks.
             // The value of the variable is dependent on the values of the variable in the previous
             // blocks
-            let phi = self.create_phi_variable_operands(block_index, variable.clone());
+            let phi = self
+                .graph
+                .get_block_mut(block_index)
+                .register_node(Node::Phi(PhiData::empty()));
             self.write_variable(variable.clone(), block_index, phi);
+            self.create_phi_variable_operands(phi, block_index, variable.clone());
             phi
         };
 
         // Denote that the newly created phi defines the variable in the current block
-        self.write_variable(variable.clone(), self.current_block_index, node);
+        self.write_variable(variable.clone(), block_index, node);
         node
     }
 
     fn seal_block(&mut self, block: BlockIndex) {
-        trace!("Current graph before sealing block: {}", self.graph);
+        debug!(
+            "Current graph before sealing block {}: {}",
+            block, self.graph
+        );
         info!("Incomplete Phis: {:?}", self.incomplete_phis);
         if !self.incomplete_phis.contains_key(&block) {
             self.sealed_blocks.push(block);
             return;
         }
         for (block_index, definitions) in &self.incomplete_phis.clone() {
+            if block.ne(block_index) {
+                continue;
+            }
             for (variable, phi) in definitions {
                 let operands = {
                     let mut operands = Vec::new();
-                    let block = self.graph.get_block_mut(*block_index);
-                    for (prev_block, _) in block.entry_points().clone() {
+                    let phi_block = self.graph.get_block_mut(*block_index);
+                    for (prev_block, prev_node) in phi_block.entry_points().clone() {
                         operands
                             .push((prev_block, self.read_variable(variable.clone(), prev_block)));
                     }
@@ -916,7 +934,8 @@ impl IRGraphConstructor {
     }
 
     fn read_current_side_effect(&mut self) -> usize {
-        self.read_side_effect(self.current_block_index)
+        return 0;
+        //self.read_side_effect(self.current_block_index)
     }
 
     fn read_side_effect(&mut self, block: usize) -> usize {

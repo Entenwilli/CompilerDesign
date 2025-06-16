@@ -79,8 +79,8 @@ impl Default for IRGraph {
 
 impl Display for IRGraph {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for block in &self.blocks {
-            writeln!(f, "{}", block)?;
+        for (index, block) in self.blocks.iter().enumerate() {
+            writeln!(f, "{} -- {}", index, block)?;
         }
         Ok(())
     }

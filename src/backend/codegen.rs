@@ -373,7 +373,10 @@ impl CodeGenerator {
                             operand.0,
                             predecessor_skip_projection(operand_block, operand.1),
                         ))
-                        .expect(format!("Expected register for {:?}", operand).as_str());
+                        .expect(
+                            format!("Expected register for {:?}", ir_graph.get_node(operand))
+                                .as_str(),
+                        );
                     if !source_register.hardware_register()
                         && !destination_register.hardware_register()
                     {
