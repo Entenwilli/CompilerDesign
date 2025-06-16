@@ -388,6 +388,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             }
             state.enter_loop();
             analyze(expression, state)?;
+            state.return_state = ReturnState::NotReturing;
             state.exit_loop();
             Ok(())
         }
@@ -407,6 +408,7 @@ pub fn analyze(tree: Box<Tree>, state: &mut AnalysisState) -> Result<(), String>
             }
             state.enter_loop();
             analyze(expression, state)?;
+            state.return_state = ReturnState::NotReturing;
             state.exit_loop();
             Ok(())
         }
