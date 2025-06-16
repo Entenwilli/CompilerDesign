@@ -397,8 +397,14 @@ impl CodeGenerator {
         registers: &Registers,
         ir_graph: &IRGraph,
     ) -> String {
+        trace!(
+            "Generating phi moves from {} to {}",
+            current_block_index,
+            following_block_index
+        );
         let mut code = String::new();
         let following_block = ir_graph.get_block(following_block_index);
+        trace!("Phis to be fulfilled: {:?}", following_block.phis());
         for phi_index in following_block.phis() {
             let phi = following_block.get_node(*phi_index);
             if let Node::Phi(data) = phi {
@@ -436,6 +442,8 @@ impl CodeGenerator {
                     }
                     break;
                 }
+            } else {
+                panic!("Block referenced non-phi as phi!")
             }
         }
         trace!(

@@ -382,7 +382,6 @@ impl IRGraphConstructor {
                 self.graph
                     .get_block_mut(loop_back_block_index)
                     .register_entry_point(self.current_block_index, loop_body_jump);
-                self.seal_block(self.current_block_index);
                 self.active_loop_entries.pop();
                 self.active_loop_exits.pop();
 
@@ -397,7 +396,7 @@ impl IRGraphConstructor {
                 self.graph
                     .get_block_mut(loop_body_index)
                     .register_entry_point(loop_back_block_index, true_projection);
-
+                self.seal_block(loop_body_index);
                 self.graph
                     .get_block_mut(following_block_index)
                     .register_entry_point(loop_back_block_index, false_projection);
@@ -473,7 +472,6 @@ impl IRGraphConstructor {
                 self.active_loop_entries.pop();
                 self.active_loop_exits.pop();
                 let loop_body_exit = self.create_jump();
-                self.seal_block(self.current_block_index);
 
                 self.graph
                     .get_block_mut(loop_post_index)
@@ -495,6 +493,7 @@ impl IRGraphConstructor {
                     .get_block_mut(loop_body_index)
                     .register_entry_point(loop_post_index, true_projection);
 
+                self.seal_block(loop_body_index);
                 self.graph
                     .get_block_mut(following_block_index)
                     .register_entry_point(loop_post_index, false_projection);
