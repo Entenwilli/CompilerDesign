@@ -262,12 +262,17 @@ impl IRGraphConstructor {
             Tree::Break(_) => {
                 debug!(
                     "Generating IR for break statement with active loops: {:?}",
-                    self.active_loop_entries
+                    self.active_loop_exits
                 );
                 let jump = self.create_jump();
                 self.graph
                     .get_block_mut(*self.active_loop_exits.first().unwrap())
                     .register_entry_point(self.current_block_index, jump);
+                debug!(
+                    "Modifying entry_points of {:?}",
+                    self.graph
+                        .get_block_mut(*self.active_loop_exits.first().unwrap())
+                );
                 None
             }
             Tree::Continue(_) => {
@@ -715,7 +720,8 @@ impl IRGraphConstructor {
         let operands = block
             .entry_points()
             .iter()
-            .map(|(v1, v2)| (*v1, *v2))
+            .flat_map(|(v1, v2)| v2.iter().map(|v| (v1.clone(), v)))
+            .map(|(v1, v2)| (v1, *v2))
             .collect();
         trace!("Creating phi with operands {:?}", operands);
         let current_block = self.graph.get_block_mut(self.current_block_index);

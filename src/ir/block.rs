@@ -4,9 +4,10 @@ use super::{graph::BlockIndex, node::Node};
 
 pub type NodeIndex = usize;
 
+#[derive(Debug)]
 pub struct Block {
     // Denote that block can be entered from block (key) at node index (value) within that block
-    entry_points: HashMap<BlockIndex, NodeIndex>,
+    entry_points: HashMap<BlockIndex, Vec<NodeIndex>>,
     phis: Vec<NodeIndex>,
     nodes: Vec<Node>,
     name: String,
@@ -23,10 +24,16 @@ impl Block {
     }
 
     pub fn register_entry_point(&mut self, block: BlockIndex, node_index: NodeIndex) {
-        self.entry_points.insert(block, node_index);
+        if self.entry_points.contains_key(&block) {
+            let mut value = self.entry_points.remove(&block).unwrap();
+            value.push(node_index);
+            self.entry_points.insert(block, value);
+        } else {
+            self.entry_points.insert(block, vec![node_index]);
+        }
     }
 
-    pub fn entry_points(&self) -> &HashMap<BlockIndex, NodeIndex> {
+    pub fn entry_points(&self) -> &HashMap<BlockIndex, Vec<NodeIndex>> {
         &self.entry_points
     }
 

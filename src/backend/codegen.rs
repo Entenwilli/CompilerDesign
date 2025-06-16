@@ -64,23 +64,27 @@ impl CodeGenerator {
         code.push_str(&format!("subq ${}, %rsp\n", stack_offset));
 
         // Jump Information contains for each block(key) the map of exits (NodeIndex[Node that jumps], BlockIndex[Block that is jumped to])
-        let mut jump_information = HashMap::new();
+        let mut jump_information: HashMap<BlockIndex, HashMap<NodeIndex, BlockIndex>> =
+            HashMap::new();
         let mut visited = Vec::new();
         jump_information.insert(END_BLOCK, HashMap::new());
         visited.push(END_BLOCK);
         for (block_index, block) in ir_graph.get_blocks().iter().enumerate() {
-            for (previous_block_index, previous_node) in block.entry_points() {
+            for (previous_block_index, previous_nodes) in block.entry_points() {
                 if !jump_information.contains_key(&previous_block_index) {
-                    jump_information.insert(
-                        *previous_block_index,
-                        HashMap::from([(*previous_node, block_index)]),
-                    );
+                    let mut value = HashMap::new();
+                    for previous_node in previous_nodes {
+                        value.insert(*previous_node, block_index);
+                    }
+                    jump_information.insert(*previous_block_index, value);
                 } else {
                     let mut existing_exits = jump_information
                         .get_mut(previous_block_index)
                         .unwrap()
                         .clone();
-                    existing_exits.insert(*previous_node, block_index);
+                    for previous_node in previous_nodes {
+                        existing_exits.insert(*previous_node, block_index);
+                    }
                     jump_information.insert(*previous_block_index, existing_exits);
                 }
             }
@@ -135,11 +139,6 @@ impl CodeGenerator {
         ir_graph: &IRGraph,
         registers: &Registers,
     ) -> String {
-        // End Node should not emit code
-        if block.get_nodes().is_empty() {
-            return String::new();
-        }
-
         let mut code = String::new();
         let block_label = self.jump_label.get(&block_index).unwrap();
         code.push_str(&format!("{}:\n", block_label));

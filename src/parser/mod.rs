@@ -64,7 +64,8 @@ fn parse_function(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
 }
 
 fn parse_block(tokens: &mut VecDeque<Token>) -> Result<Tree, ParseError> {
-    let body_open = expect_seperator(tokens, SeperatorType::BraceOpen).unwrap();
+    let body_open = expect_seperator(tokens, SeperatorType::BraceOpen)
+        .ok_or(ParseError::Error("Expected block for function".to_string()))?;
     let mut statements = vec![];
     while !tokens.is_empty() {
         match tokens.front().unwrap() {
