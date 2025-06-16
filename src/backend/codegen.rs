@@ -300,9 +300,16 @@ impl CodeGenerator {
                 );
                 let following_block_index = jump_information.get(&node_index).unwrap();
                 let false_block_index = jump_information.get(&(node_index + 1)).unwrap();
+                let projection = block.get_node(node_index);
+                let comparision = *block
+                    .get_node(*projection.predecessors().get(0).unwrap())
+                    .predecessors()
+                    .get(0)
+                    .unwrap();
+
                 let conditional_jump_code = self.generate_conditional_jump_rec(
                     false,
-                    node_index,
+                    comparision,
                     block,
                     block_index,
                     *following_block_index,
@@ -421,7 +428,7 @@ impl CodeGenerator {
     pub fn generate_conditional_jump_rec(
         &self,
         inverted: bool,
-        projection_index: usize,
+        comparison_index: usize,
         current_block: &Block,
         current_block_index: BlockIndex,
         jump_block_index: usize,
@@ -430,13 +437,8 @@ impl CodeGenerator {
         registers: &Registers,
     ) -> Option<String> {
         let mut code = String::new();
-        let projection = current_block.get_node(projection_index);
-        let comparision = *current_block
-            .get_node(*projection.predecessors().get(0).unwrap())
-            .predecessors()
-            .get(0)
-            .unwrap();
-        let comparison_node = current_block.get_node(comparision);
+        let comparison_node = current_block.get_node(comparison_index);
+        trace!("Generating conditional jump code for {:?}", comparison_node);
         match comparison_node {
             Node::LogicalNot(data) => {
                 code.push_str(&self.generate_conditional_jump_rec(
@@ -509,7 +511,7 @@ impl CodeGenerator {
                 };
                 code.push_str(&self.generate_conditional_jump(
                     comparison_node,
-                    comparision,
+                    comparison_index,
                     current_block,
                     current_block_index,
                     jump_block_index,
@@ -520,6 +522,7 @@ impl CodeGenerator {
             }
             _ => {}
         }
+        trace!("Code generated for {:?}: {}", comparison_node, code);
         Some(code)
     }
 
