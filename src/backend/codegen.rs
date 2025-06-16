@@ -384,6 +384,7 @@ impl CodeGenerator {
                 code.push_str(&format!("jmp {}\n", jump_label));
             }
             Node::Projection(_) => return code,
+            #[allow(unreachable_patterns)]
             node => panic!("unimplemented node {:?}", node),
         }
         debug!("Generated code for IR: {}", code);

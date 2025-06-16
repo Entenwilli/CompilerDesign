@@ -31,7 +31,7 @@ pub struct IRGraphConstructor {
     current_definitions: HashMap<Name, HashMap<BlockIndex, NodeIndex>>,
     incomplete_phis: HashMap<BlockIndex, HashMap<Name, NodeIndex>>,
     current_side_effect: HashMap<usize, usize>,
-    incomplete_side_effect_phis: HashMap<usize, usize>,
+    _incomplete_side_effect_phis: HashMap<usize, usize>,
     sealed_blocks: Vec<usize>,
     current_block_index: BlockIndex,
     active_loop_entries: Vec<BlockIndex>,
@@ -45,7 +45,7 @@ impl IRGraphConstructor {
             current_definitions: HashMap::new(),
             incomplete_phis: HashMap::new(),
             current_side_effect: HashMap::new(),
-            incomplete_side_effect_phis: HashMap::new(),
+            _incomplete_side_effect_phis: HashMap::new(),
             // Start Block never gets more predecessors
             sealed_blocks: vec![START_BLOCK],
             current_block_index: START_BLOCK,
@@ -746,7 +746,7 @@ impl IRGraphConstructor {
         return_node_index
     }
 
-    fn create_phi(&mut self) -> usize {
+    fn _create_phi(&mut self) -> usize {
         let current_block = self.graph.get_block_mut(self.current_block_index);
         current_block.register_node(Node::Phi(PhiData::empty()))
     }
@@ -756,7 +756,7 @@ impl IRGraphConstructor {
         current_block.register_node(Node::Phi(PhiData::new(operands)))
     }
 
-    fn create_phi_operands(&mut self, block_index: BlockIndex) -> NodeIndex {
+    fn _create_phi_operands(&mut self, block_index: BlockIndex) -> NodeIndex {
         let block = self.graph.get_block(block_index);
         let operands = block
             .entry_points()
@@ -937,7 +937,7 @@ impl IRGraphConstructor {
                 let operands = {
                     let mut operands = Vec::new();
                     let phi_block = self.graph.get_block_mut(*block_index);
-                    for (prev_block, prev_node) in phi_block.entry_points().clone() {
+                    for (prev_block, _prev_nodes) in phi_block.entry_points().clone() {
                         operands
                             .push((prev_block, self.read_variable(variable.clone(), prev_block)));
                     }
@@ -967,18 +967,18 @@ impl IRGraphConstructor {
         //self.read_side_effect(self.current_block_index)
     }
 
-    fn read_side_effect(&mut self, block: usize) -> usize {
+    fn _read_side_effect(&mut self, block: usize) -> usize {
         if self.current_side_effect.contains_key(&block) {
             *self.current_side_effect.get(&block).unwrap()
         } else {
-            self.read_side_effect_recusive(block)
+            self._read_side_effect_recusive(block)
         }
     }
 
-    fn read_side_effect_recusive(&mut self, block: usize) -> usize {
+    fn _read_side_effect_recusive(&mut self, block: usize) -> usize {
         let node = if !self.sealed_blocks.contains(&block) {
-            let phi = self.create_phi();
-            let old_phi = self.incomplete_side_effect_phis.insert(block, phi);
+            let phi = self._create_phi();
+            let old_phi = self._incomplete_side_effect_phis.insert(block, phi);
             if old_phi.is_some() {
                 panic!("Double read side effect recursive!");
             }
@@ -991,9 +991,9 @@ impl IRGraphConstructor {
                 .iter()
                 .last()
                 .unwrap();
-            self.read_side_effect(*previous_block)
+            self._read_side_effect(*previous_block)
         } else {
-            let phi = self.create_phi_operands(block);
+            let phi = self._create_phi_operands(block);
             self.write_side_effect(block, phi);
             phi
         };
