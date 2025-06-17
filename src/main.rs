@@ -11,6 +11,7 @@ use lexer::Lexer;
 use parser::{ast::Tree, error::ParseError, Parser};
 use rand::{distr::Alphanumeric, Rng};
 use semantic::{analyze, AnalysisState};
+use tracing::{debug, error, info};
 
 pub mod backend;
 pub mod ir;
@@ -20,9 +21,10 @@ pub mod semantic;
 pub mod util;
 
 fn main() {
+    tracing_subscriber::fmt::init();
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
-        println!("Error: Invalid arguments");
+        error!("Error: Invalid arguments");
         exit(3);
     }
     let input = Path::new(args.get(1).unwrap());
@@ -35,14 +37,15 @@ fn main() {
     let output = Path::new(args.get(2).unwrap());
 
     let program = lex_parse(input);
-    println!("Program AST:");
-    println!("{}", program);
+    debug!("Program AST: {}", program);
+
     let mut state = AnalysisState::default();
     let semantic_analysis = analyze(Box::new(program.clone()), &mut state);
     if semantic_analysis.is_err() {
-        println!("Semantic Error: {}", semantic_analysis.err().unwrap());
+        error!("Semantic Error: {}", semantic_analysis.err().unwrap());
         exit(7)
     }
+
     let mut ir_graphs = Vec::new();
     if let Tree::Program(functions) = program {
         for function in functions {
@@ -54,19 +57,30 @@ fn main() {
         panic!("Result from parser is not a program tree!");
     }
     for ir_graph in ir_graphs.iter().clone() {
-        println!("Constructed IR:");
-        println!("{}", &ir_graph);
+        info!("Constructed IR: {}", ir_graph);
     }
     let code_generator = CodeGenerator::new(ir_graphs);
-    fs::write(temp.clone(), code_generator.generate())
-        .expect("Filesystem: Failed to write assembler output");
+    let assembler = code_generator.generate();
+    info!("Assembler contents: {}", &assembler);
+    fs::write(temp.clone(), assembler).expect("Filesystem: Failed to write assembler output");
+    info!(
+        "Filesystem: Wrote assembler to {}",
+        temp.clone().to_string()
+    );
     let gcc = Command::new("gcc")
         .arg(temp)
         .arg("-o")
         .arg(output)
         .output()
         .expect("Failed to invoke GCC!");
-    println!("{}", std::str::from_utf8(gcc.stderr.as_slice()).unwrap());
+    if !gcc.stderr.as_slice().is_empty() {
+        error!("{}", std::str::from_utf8(gcc.stderr.as_slice()).unwrap());
+    } else {
+        info!(
+            "Successfully compiled {}!",
+            input.file_name().unwrap().to_str().unwrap()
+        )
+    }
 }
 
 fn lex_parse(path: &Path) -> Tree {
@@ -80,7 +94,7 @@ fn lex_parse(path: &Path) -> Tree {
                 if error.eq(&ParseError::Finished) {
                     None
                 } else {
-                    println!("Lexing Error: {:?}", error);
+                    error!("Lexing Error: {:?}", error);
                     exit(42)
                 }
             }
@@ -92,7 +106,7 @@ fn lex_parse(path: &Path) -> Tree {
     if parse_result.is_err() && matches!(parse_result.as_ref().err().unwrap(), ParseError::Error(_))
     {
         if let ParseError::Error(error) = parse_result.as_ref().err().unwrap() {
-            println!("Parsing Error {}", error);
+            error!("Parsing Error {}", error);
             exit(42)
         }
     }
