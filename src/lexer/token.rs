@@ -236,7 +236,7 @@ pub enum Token {
     ErrorToken(Span, String),
     Identifier(Span, String),
     Keyword(Span, KeywordType),
-    NumberLiteral(Span, String, u64),
+    NumberLiteral(Span, String, usize),
     BoolLiteral(Span, String),
     Operator(Span, OperatorType),
     Separator(Span, SeperatorType),

@@ -29,8 +29,8 @@ impl Span {
         self.end
     }
 
-    pub fn merge(self, later: Span) -> Span {
-        Span::new(self.start, later.end_owned())
+    pub fn merge(&self, later: &Span) -> Span {
+        Span::new(self.start.clone(), later.end().clone())
     }
 }
 
