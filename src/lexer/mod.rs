@@ -8,6 +8,8 @@ use crate::{
     util::{position::Position, span::Span},
 };
 
+pub mod collection;
+pub mod operator;
 pub mod token;
 
 pub struct Lexer {
@@ -34,18 +36,13 @@ impl Lexer {
         );
         let whitespace = self.skip_whitespace();
         if whitespace.is_some() {
-            return whitespace
-                .clone()
-                .ok_or(ParseError::Error(format!("{:?}", whitespace.unwrap())));
+            return whitespace.clone().ok_or(ParseError::WhitespaceError);
         }
         if self.position >= self.source.chars().count() {
-            return Err(ParseError::Finished);
+            return Err(ParseError::ReachedEnd);
         }
 
-        let token = match self
-            .peek()
-            .ok_or(ParseError::Error("Not a character".to_string()))?
-        {
+        let token = match self.peek().ok_or(ParseError::InvalidCharacter)? {
             '(' => self.seperator(SeperatorType::ParenOpen),
             ')' => self.seperator(SeperatorType::ParenClose),
             '{' => self.seperator(SeperatorType::BraceOpen),
@@ -55,19 +52,19 @@ impl Lexer {
             ':' => Token::Operator(self.build_span(1), OperatorType::TernaryColon),
             '-' => self
                 .single_assign(OperatorType::Minus, OperatorType::AssignMinus, 1)
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '+' => self
                 .single_assign(OperatorType::Plus, OperatorType::AssignPlus, 1)
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '*' => self
                 .single_assign(OperatorType::Mul, OperatorType::AssignMul, 1)
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '/' => self
                 .single_assign(OperatorType::Div, OperatorType::AssignDiv, 1)
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '%' => self
                 .single_assign(OperatorType::Mod, OperatorType::AssignMod, 1)
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '&' => self
                 .single_assign_logical(
                     '&',
@@ -75,13 +72,13 @@ impl Lexer {
                     OperatorType::AssignBitwiseAnd,
                     OperatorType::LogicalAnd,
                 )
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '~' => self
                 .single_assign(OperatorType::BitwiseNot, OperatorType::AssignBitwiseNot, 1)
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '^' => self
                 .single_assign(OperatorType::BitwiseXor, OperatorType::AssignBitwiseXor, 1)
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '|' => self
                 .single_assign_logical(
                     '|',
@@ -89,7 +86,7 @@ impl Lexer {
                     OperatorType::AssignBitwiseOr,
                     OperatorType::LogicalOr,
                 )
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '<' => self
                 .shift_or_comparison(
                     '<',
@@ -98,7 +95,7 @@ impl Lexer {
                     OperatorType::Lower,
                     OperatorType::LowerEquals,
                 )
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '>' => self
                 .shift_or_comparison(
                     '>',
@@ -107,21 +104,20 @@ impl Lexer {
                     OperatorType::Higher,
                     OperatorType::HigherEquals,
                 )
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '!' => self
                 .not_or_comparison()
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             '=' => self
                 .assign_or_comparison()
-                .ok_or(ParseError::Error("Not a character".to_string()))?,
+                .ok_or(ParseError::InvalidCharacter)?,
             char => {
                 if self.is_identifier_char(char) {
                     if self.is_numeric(char) {
                         self.lex_number()?
                     } else {
-                        self.lex_identifier_keyword().map_err(|_| {
-                            ParseError::Error("Error lexing identifier keyword".to_string())
-                        })?
+                        self.lex_identifier_keyword()
+                            .map_err(|_| ParseError::ExpectedKeywordOrIdentifier)?
                     }
                 } else {
                     Token::ErrorToken(self.build_span(1), char.to_string())
@@ -249,16 +245,10 @@ impl Lexer {
     }
 
     fn lex_number(&mut self) -> Result<Token, ParseError> {
-        if self
-            .is_hex_prefix()
-            .ok_or(ParseError::Error("Not a character".to_string()))?
-        {
+        if self.is_hex_prefix().ok_or(ParseError::InvalidCharacter)? {
             let mut offset = 2;
             while self.has_more(offset)
-                && is_hex(
-                    self.peek_pos(offset)
-                        .ok_or(ParseError::Error("Not a character".to_string()))?,
-                )
+                && is_hex(self.peek_pos(offset).ok_or(ParseError::InvalidCharacter)?)
             {
                 offset += 1;
             }
@@ -273,20 +263,12 @@ impl Lexer {
 
         let mut offset = 1;
         while self.has_more(offset)
-            && self.is_numeric(
-                self.peek_pos(offset)
-                    .ok_or(ParseError::Error("Not a character".to_string()))?,
-            )
+            && self.is_numeric(self.peek_pos(offset).ok_or(ParseError::InvalidCharacter)?)
         {
             offset += 1;
         }
 
-        if self
-            .peek()
-            .ok_or(ParseError::Error("Not a character".to_string()))?
-            .eq(&'0')
-            && offset > 1
-        {
+        if self.peek().ok_or(ParseError::InvalidCharacter)?.eq(&'0') && offset > 1 {
             return Ok(Token::ErrorToken(
                 self.build_span(offset),
                 self.get_substring(self.position..self.position + offset),

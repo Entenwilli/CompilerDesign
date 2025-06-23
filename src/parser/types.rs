@@ -2,6 +2,7 @@
 pub enum Type {
     Int,
     Bool,
+    Unit,
 }
 
 impl Type {
@@ -9,6 +10,7 @@ impl Type {
         match self {
             Type::Int => "int",
             Type::Bool => "bool",
+            Type::Unit => "()",
         }
     }
 }

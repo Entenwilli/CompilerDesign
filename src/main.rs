@@ -6,12 +6,18 @@ use std::{
 };
 
 use backend::codegen::CodeGenerator;
-use ir::constructor::IRGraphConstructor;
 use lexer::Lexer;
-use parser::{ast::Tree, error::ParseError, Parser};
+use parser::{ast::Tree, error::ParseError};
 use rand::{distr::Alphanumeric, Rng};
-use semantic::{analyze, AnalysisState};
-use tracing::{debug, error, info};
+use semantic::AnalysisState;
+use tracing::{debug, error, info, trace};
+
+use crate::{
+    ir::ast::{IRConstructor, ToIR},
+    lexer::collection::ParserTokens,
+    parser::ast::program_tree::ProgramTree,
+    semantic::ast::SemanticAnalysis,
+};
 
 pub mod backend;
 pub mod ir;
@@ -40,21 +46,17 @@ fn main() {
     debug!("Program AST: {}", program);
 
     let mut state = AnalysisState::default();
-    let semantic_analysis = analyze(Box::new(program.clone()), &mut state);
-    if semantic_analysis.is_err() {
-        error!("Semantic Error: {}", semantic_analysis.err().unwrap());
+    let semantic_analysis = program.analyze(&mut state);
+    if let Err(error) = semantic_analysis {
+        error!("Semantic Error: {}", error);
         exit(7)
     }
 
     let mut ir_graphs = Vec::new();
-    if let Tree::Program(functions) = program {
-        for function in functions {
-            let mut ir_graph = IRGraphConstructor::new();
-            ir_graph.convert(function);
-            ir_graphs.push(ir_graph.graph());
-        }
-    } else {
-        panic!("Result from parser is not a program tree!");
+    for function in program.functions() {
+        let mut ir_graph = IRConstructor::new();
+        function.to_ir(&mut ir_graph);
+        ir_graphs.push(ir_graph.graph());
     }
     for ir_graph in ir_graphs.iter().clone() {
         info!("Constructed IR: {}", ir_graph);
@@ -83,7 +85,7 @@ fn main() {
     }
 }
 
-fn lex_parse(path: &Path) -> Tree {
+fn lex_parse(path: &Path) -> ProgramTree {
     let source = fs::read_to_string(path).unwrap();
     let mut lexer = Lexer::new(source);
     let tokens = std::iter::from_fn(|| {
@@ -91,24 +93,22 @@ fn lex_parse(path: &Path) -> Tree {
         match next_token {
             Ok(t) => Some(t),
             Err(error) => {
-                if error.eq(&ParseError::Finished) {
-                    None
-                } else {
-                    error!("Lexing Error: {:?}", error);
-                    exit(42)
+                if error.eq(&ParseError::ReachedEnd) {
+                    return None;
                 }
+                error!("Lexing Error: {:?}", error);
+                exit(42)
             }
         }
     })
     .collect::<VecDeque<_>>();
-    let parser = Parser::new(tokens);
-    let parse_result = parser.parse_program();
-    if parse_result.is_err() && matches!(parse_result.as_ref().err().unwrap(), ParseError::Error(_))
-    {
-        if let ParseError::Error(error) = parse_result.as_ref().err().unwrap() {
-            error!("Parsing Error {}", error);
-            exit(42)
-        }
+    trace!("Tokens: {:?}", tokens);
+    let mut parser_tokens = ParserTokens::new(tokens);
+    let parse_result = ProgramTree::from_tokens(&mut parser_tokens);
+    if let Err(error) = parse_result {
+        error!("Parse Error: {}", error);
+        exit(42)
+    } else {
+        parse_result.ok().unwrap()
     }
-    parse_result.ok().unwrap()
 }
