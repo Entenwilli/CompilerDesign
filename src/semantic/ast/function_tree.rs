@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use tracing::trace;
 
 use crate::{
@@ -8,6 +10,7 @@ use crate::{
 impl SemanticAnalysis for FunctionTree {
     fn analyze(&self, state: &mut AnalysisState) -> Result<(), SemanticError> {
         trace!("Running semantic analysis on function");
+        state.namespace = HashMap::new();
         self.return_type().analyze(state)?;
         state.set_return_type(self.return_type().type_tree().clone());
         self.name_tree().analyze(state)?;

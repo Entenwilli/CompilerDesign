@@ -78,7 +78,12 @@ impl Tree for SimpleStatementTree {
                 let declaration_tree = DeclarationTree::from_tokens(tokens)?;
                 Ok(SimpleStatementTree::DeclerationTree(declaration_tree))
             }
+            token if token.is_separator(&SeperatorType::ParenOpen) => {
+                let assignment_tree = AssignmentTree::from_tokens(tokens)?;
+                Ok(SimpleStatementTree::AssignmentTree(assignment_tree))
+            }
             _ => {
+                trace!("Second token {:?}", tokens.peek_index(1));
                 if tokens
                     .peek_index(1)?
                     .is_separator(&SeperatorType::ParenOpen)
