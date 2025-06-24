@@ -6,7 +6,9 @@ use crate::{
 use super::IRConstructor;
 
 impl ToIR for CallTree {
-    fn to_ir(&self, _constructor: &mut IRConstructor) -> Option<NodeIndex> {
-        unimplemented!()
+    fn to_ir(&self, constructor: &mut IRConstructor) -> Option<NodeIndex> {
+        //TODO: Unimplemented
+        let temp = constructor.create_constant_int(0);
+        Some(temp)
     }
 }

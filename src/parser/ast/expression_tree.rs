@@ -11,6 +11,7 @@ use crate::{
     parser::{
         ast::{
             binary_operation_tree::BinaryOperationTree,
+            call_tree::CallTree,
             identifier_tree::IdentifierExpressionTree,
             literal_tree::{BooleanLiteralTree, IntegerLiteralTree},
             ternary_operation_tree::TernaryOperationTree,
@@ -27,6 +28,7 @@ pub enum ExpressionTree {
     BooleanLiteralTree(BooleanLiteralTree),
     IntegerLiteralTree(IntegerLiteralTree),
     IdentifierExpressionTree(IdentifierExpressionTree),
+    CallTree(CallTree),
     UnaryOperationTree(UnaryOperationTree),
     BinaryOperationTree(BinaryOperationTree),
     TernaryOperationTree(TernaryOperationTree),
@@ -38,6 +40,7 @@ impl Tree for ExpressionTree {
             ExpressionTree::BooleanLiteralTree(tree) => tree.span(),
             ExpressionTree::IntegerLiteralTree(tree) => tree.span(),
             ExpressionTree::IdentifierExpressionTree(tree) => tree.span(),
+            ExpressionTree::CallTree(tree) => tree.span(),
             ExpressionTree::UnaryOperationTree(tree) => tree.span(),
             ExpressionTree::BinaryOperationTree(tree) => tree.span(),
             ExpressionTree::TernaryOperationTree(tree) => tree.span(),
@@ -189,9 +192,18 @@ impl ExpressionTree {
                     }
                 }
             }
-            Token::Identifier(_, _) => Ok(ExpressionTree::IdentifierExpressionTree(
-                IdentifierExpressionTree::from_tokens(tokens)?,
-            )),
+            Token::Identifier(_, _) => {
+                if tokens
+                    .peek_index(1)?
+                    .is_separator(&SeperatorType::ParenOpen)
+                {
+                    Ok(ExpressionTree::CallTree(CallTree::from_tokens(tokens)?))
+                } else {
+                    Ok(ExpressionTree::IdentifierExpressionTree(
+                        IdentifierExpressionTree::from_tokens(tokens)?,
+                    ))
+                }
+            }
             Token::NumberLiteral(_, _, _) => Ok(ExpressionTree::IntegerLiteralTree(
                 IntegerLiteralTree::from_tokens(tokens)?,
             )),
@@ -213,6 +225,7 @@ impl Display for ExpressionTree {
             ExpressionTree::BooleanLiteralTree(tree) => write!(f, "{}", tree),
             ExpressionTree::IntegerLiteralTree(tree) => write!(f, "{}", tree),
             ExpressionTree::IdentifierExpressionTree(tree) => write!(f, "{}", tree),
+            ExpressionTree::CallTree(tree) => write!(f, "{}", tree),
             ExpressionTree::UnaryOperationTree(tree) => write!(f, "{}", tree),
             ExpressionTree::BinaryOperationTree(tree) => write!(f, "{}", tree),
             ExpressionTree::TernaryOperationTree(tree) => write!(f, "{}", tree),

@@ -48,6 +48,7 @@ impl Lexer {
             '{' => self.seperator(SeperatorType::BraceOpen),
             '}' => self.seperator(SeperatorType::BraceClose),
             ';' => self.seperator(SeperatorType::Semicolon),
+            ',' => self.seperator(SeperatorType::Comma),
             '?' => Token::Operator(self.build_span(1), OperatorType::TernaryQuestionMark),
             ':' => Token::Operator(self.build_span(1), OperatorType::TernaryColon),
             '-' => self

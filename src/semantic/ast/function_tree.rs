@@ -11,6 +11,9 @@ impl SemanticAnalysis for FunctionTree {
         self.return_type().analyze(state)?;
         state.set_return_type(self.return_type().type_tree().clone());
         self.name_tree().analyze(state)?;
+        for function_parameter in self.parameters() {
+            function_parameter.analyze(state)?;
+        }
         self.body().analyze(state)?;
         if state.return_state.eq(&ReturnState::NotReturing) {
             return Err(SemanticError::FunctionNotReturning(self.body().clone()));

@@ -4,6 +4,7 @@ pub mod assignment_tree;
 pub mod binary_operation_tree;
 pub mod block_tree;
 pub mod break_tree;
+pub mod call_parameter_tree;
 pub mod call_tree;
 pub mod continue_tree;
 pub mod declaration_tree;

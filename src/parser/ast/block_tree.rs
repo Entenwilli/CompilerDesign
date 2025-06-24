@@ -56,10 +56,10 @@ impl BlockTree {
 
 impl Display for BlockTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{")?;
+        writeln!(f, "{{")?;
         for statement in &self.statements {
             write!(f, "{}", statement)?;
         }
-        write!(f, "}}")
+        writeln!(f, "}}")
     }
 }

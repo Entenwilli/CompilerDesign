@@ -217,6 +217,7 @@ pub enum SeperatorType {
     BraceOpen,
     BraceClose,
     Semicolon,
+    Comma,
 }
 
 impl SeperatorType {
@@ -227,6 +228,7 @@ impl SeperatorType {
             Self::BraceOpen => "{",
             Self::BraceClose => "}",
             Self::Semicolon => ";",
+            Self::Comma => ",",
         }
     }
 }

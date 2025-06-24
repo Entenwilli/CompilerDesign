@@ -12,6 +12,7 @@ impl SemanticAnalysis for ExpressionTree {
             ExpressionTree::BinaryOperationTree(tree) => tree.analyze(state),
             ExpressionTree::TernaryOperationTree(tree) => tree.analyze(state),
             ExpressionTree::IdentifierExpressionTree(tree) => tree.analyze(state),
+            ExpressionTree::CallTree(tree) => tree.analyze(state),
         }
     }
 
@@ -23,6 +24,7 @@ impl SemanticAnalysis for ExpressionTree {
             ExpressionTree::BinaryOperationTree(tree) => tree.r#type(state),
             ExpressionTree::TernaryOperationTree(tree) => tree.r#type(state),
             ExpressionTree::IdentifierExpressionTree(tree) => tree.r#type(state),
+            ExpressionTree::CallTree(tree) => tree.r#type(state),
         }
     }
 }

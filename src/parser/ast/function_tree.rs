@@ -32,8 +32,22 @@ impl Tree for FunctionTree {
         let return_type = TypeTree::from_tokens(tokens)?;
         let name = NameTree::from_tokens(tokens)?;
         tokens.expect_seperator(SeperatorType::ParenOpen)?;
-        let parameters = vec![];
-        // TODO: Parse function parameters
+        let mut parameters = vec![];
+        if tokens
+            .peek()
+            .ok_or(ParseError::ReachedEnd)?
+            .is_type_keyword()
+        {
+            parameters.push(FunctionParameterTree::from_tokens(tokens)?);
+            while tokens
+                .peek()
+                .ok_or(ParseError::ReachedEnd)?
+                .is_separator(&SeperatorType::Comma)
+            {
+                tokens.consume()?;
+                parameters.push(FunctionParameterTree::from_tokens(tokens)?);
+            }
+        }
         tokens.expect_seperator(SeperatorType::ParenClose)?;
         let body = BlockTree::from_tokens(tokens)?;
         trace!("Successfully parsed function");
@@ -66,10 +80,10 @@ impl FunctionTree {
 
 impl Display for FunctionTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {}(", self.return_type, self.name)?;
+        write!(f, "{} {}(", self.return_type, self.name)?;
         for parameter in &self.parameters {
             write!(f, "{}", parameter)?;
         }
-        write!(f, "{}", self.body)
+        writeln!(f, "){}", self.body)
     }
 }

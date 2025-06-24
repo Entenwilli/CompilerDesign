@@ -11,6 +11,7 @@ impl ToIR for ExpressionTree {
             ExpressionTree::BooleanLiteralTree(tree) => tree.to_ir(constructor),
             ExpressionTree::IntegerLiteralTree(tree) => tree.to_ir(constructor),
             ExpressionTree::IdentifierExpressionTree(tree) => tree.to_ir(constructor),
+            ExpressionTree::CallTree(tree) => tree.to_ir(constructor),
             ExpressionTree::UnaryOperationTree(tree) => tree.to_ir(constructor),
             ExpressionTree::BinaryOperationTree(tree) => tree.to_ir(constructor),
             ExpressionTree::TernaryOperationTree(tree) => tree.to_ir(constructor),
