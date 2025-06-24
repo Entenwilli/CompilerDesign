@@ -54,7 +54,7 @@ fn main() {
 
     let mut ir_graphs = Vec::new();
     for function in program.functions() {
-        let mut ir_graph = IRConstructor::new();
+        let mut ir_graph = IRConstructor::new(function.name_tree().name().as_string().to_string());
         function.to_ir(&mut ir_graph);
         ir_graphs.push(ir_graph.graph());
     }

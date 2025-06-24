@@ -11,12 +11,14 @@ pub const START_BLOCK: usize = 0;
 pub const END_BLOCK: usize = 1;
 
 pub struct IRGraph {
+    name: String,
     blocks: Vec<Block>,
 }
 
 impl IRGraph {
-    pub fn new() -> IRGraph {
+    pub fn new(name: String) -> IRGraph {
         IRGraph {
+            name,
             blocks: vec![
                 Block::new("start".to_string()),
                 Block::new("end".to_string()),
@@ -69,11 +71,15 @@ impl IRGraph {
     pub fn end_block_mut(&mut self) -> &mut Block {
         self.blocks.get_mut(END_BLOCK).expect("End Block missing!")
     }
+
+    pub fn name(&self) -> &String {
+        &self.name
+    }
 }
 
 impl Default for IRGraph {
     fn default() -> Self {
-        Self::new()
+        Self::new("default".to_string())
     }
 }
 
