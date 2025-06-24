@@ -54,9 +54,9 @@ pub trait ToIR {
 }
 
 impl IRConstructor {
-    pub fn new() -> IRConstructor {
+    pub fn new(name: String) -> IRConstructor {
         IRConstructor {
-            graph: IRGraph::new(),
+            graph: IRGraph::new(name),
             current_definitions: HashMap::new(),
             incomplete_phis: HashMap::new(),
             current_side_effect: HashMap::new(),

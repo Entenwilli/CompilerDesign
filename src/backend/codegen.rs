@@ -31,7 +31,7 @@ _main:
 
 pub struct CodeGenerator {
     ir_graphs: Vec<IRGraph>,
-    jump_label: HashMap<usize, String>,
+    jump_label: HashMap<(String, BlockIndex), String>,
 }
 
 impl CodeGenerator {
@@ -140,7 +140,10 @@ impl CodeGenerator {
         registers: &Registers,
     ) -> String {
         let mut code = String::new();
-        let block_label = self.jump_label.get(&block_index).unwrap();
+        let block_label = self
+            .jump_label
+            .get(&(ir_graph.name().to_string(), block_index))
+            .unwrap();
         code.push_str(&format!("{}:\n", block_label));
 
         for (node_index, node) in block.get_nodes().iter().enumerate() {
@@ -324,7 +327,10 @@ impl CodeGenerator {
                     node,
                 );
                 let following_block_index = jump_information.get(&node_index).unwrap();
-                let label = self.jump_label.get(following_block_index).unwrap();
+                let label = self
+                    .jump_label
+                    .get(&(ir_graph.name().to_string(), *following_block_index))
+                    .unwrap();
                 code.push_str(&self.generate_phi_moves(
                     block_index,
                     *following_block_index,
@@ -372,7 +378,7 @@ impl CodeGenerator {
                 let following_block_index = jump_information.get(&node_index).unwrap();
                 let jump_label = self
                     .jump_label
-                    .get(following_block_index)
+                    .get(&(ir_graph.name().to_string(), *following_block_index))
                     .expect("Expected jump label for false if");
                 code.push_str(&self.generate_phi_moves(
                     block_index,
@@ -620,7 +626,10 @@ impl CodeGenerator {
         registers: &Registers,
     ) -> Option<String> {
         let mut code = String::new();
-        let jump_label = self.jump_label.get(&jump_target).unwrap();
+        let jump_label = self
+            .jump_label
+            .get(&(ir_graph.name().to_string(), jump_target))
+            .unwrap();
         match comparision {
             Node::Lower(data)
             | Node::LowerEquals(data)
@@ -898,11 +907,11 @@ fn move_stack_variable(register: &Box<dyn Register>) -> String {
     code
 }
 
-fn calculate_jump_label(ir_graphs: &Vec<IRGraph>) -> HashMap<usize, String> {
+fn calculate_jump_label(ir_graphs: &Vec<IRGraph>) -> HashMap<(String, BlockIndex), String> {
     let mut jump_label = HashMap::new();
     for ir_graph in ir_graphs {
         for (block_index, block) in ir_graph.get_blocks().iter().enumerate() {
-            calculate_jump_label_block(block_index, block, &mut jump_label);
+            calculate_jump_label_block(block_index, ir_graph, block, &mut jump_label);
         }
     }
     jump_label
@@ -910,8 +919,12 @@ fn calculate_jump_label(ir_graphs: &Vec<IRGraph>) -> HashMap<usize, String> {
 
 fn calculate_jump_label_block<'a>(
     block_index: BlockIndex,
+    ir_graph: &IRGraph,
     _block: &Block,
-    current: &mut HashMap<usize, String>,
+    current: &mut HashMap<(String, BlockIndex), String>,
 ) {
-    current.insert(block_index, format!("LC{}", block_index));
+    current.insert(
+        (ir_graph.name().to_string(), block_index),
+        format!("LC{}{}", ir_graph.name(), block_index),
+    );
 }
