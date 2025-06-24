@@ -31,6 +31,10 @@ impl Tree for IdentifierExpressionTree {
 }
 
 impl IdentifierExpressionTree {
+    pub fn new(name: NameTree) -> IdentifierExpressionTree {
+        IdentifierExpressionTree { name }
+    }
+
     pub fn name(&self) -> &NameTree {
         &self.name
     }

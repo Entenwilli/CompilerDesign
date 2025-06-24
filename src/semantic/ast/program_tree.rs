@@ -28,7 +28,18 @@ impl SemanticAnalysis for ProgramTree {
         for function in self.functions() {
             function.analyze(state)?;
         }
-        Ok(())
+        if let Some(main_function) = self
+            .functions()
+            .iter()
+            .find(|v| v.name_tree().name().as_string() == "main")
+        {
+            if main_function.parameters().len() > 0 {
+                return Err(SemanticError::InvalidMainFunction);
+            }
+            Ok(())
+        } else {
+            Err(SemanticError::NoMainFunction)
+        }
     }
     fn r#type(&self, _: &mut AnalysisState) -> Result<Type, SemanticError> {
         Ok(Type::Unit)

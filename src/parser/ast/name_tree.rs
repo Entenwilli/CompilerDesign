@@ -32,6 +32,10 @@ impl Tree for NameTree {
 }
 
 impl NameTree {
+    pub fn new(name: Name, span: Span) -> NameTree {
+        NameTree { name, span }
+    }
+
     pub fn name(&self) -> &Name {
         &self.name
     }

@@ -25,11 +25,13 @@ pub enum SemanticError {
     ConditionMustBeBoolean(ExpressionTree),
     FunctionNotReturning(BlockTree),
     ForAdvancementDefinesVariable,
+    NoMainFunction,
     MainMustReturnInt,
     IncompatibleReturnType(ExpressionTree),
     FunctionAlreadyDefined(Name),
     UndefinedFunction(Name),
     FunctionParameterMismatch,
+    InvalidMainFunction,
 }
 
 impl Display for SemanticError {
@@ -118,6 +120,12 @@ impl Display for SemanticError {
             }
             SemanticError::FunctionParameterMismatch => {
                 writeln!(f, "Mismatching function parameters!")
+            }
+            SemanticError::NoMainFunction => {
+                writeln!(f, "No main function!")
+            }
+            SemanticError::InvalidMainFunction => {
+                writeln!(f, "Invalid main function")
             }
         }
     }
