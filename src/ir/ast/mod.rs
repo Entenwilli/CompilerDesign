@@ -174,6 +174,7 @@ impl IRConstructor {
             }
             ExpressionTree::UnaryOperationTree(_tree) => todo!(),
             ExpressionTree::TernaryOperationTree(_tree) => todo!(),
+            ExpressionTree::CallTree(_tree) => todo!(),
         }
     }
 

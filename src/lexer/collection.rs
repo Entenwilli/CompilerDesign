@@ -151,6 +151,10 @@ impl ParserTokens {
         self.tokens.front()
     }
 
+    pub fn peek_index(&self, index: usize) -> Result<&Token, ParseError> {
+        self.tokens.get(index).ok_or(ParseError::ReachedEnd)
+    }
+
     pub fn push(&mut self, value: Token) {
         self.tokens.push_front(value);
     }

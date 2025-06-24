@@ -76,18 +76,21 @@ impl Tree for SimpleStatementTree {
         match tokens.peek().ok_or(ParseError::ReachedEnd)? {
             token if token.is_type_keyword() => {
                 let declaration_tree = DeclarationTree::from_tokens(tokens)?;
-                return Ok(SimpleStatementTree::DeclerationTree(declaration_tree));
+                Ok(SimpleStatementTree::DeclerationTree(declaration_tree))
             }
             _ => {
-                if let Ok(assignment_tree) = AssignmentTree::from_tokens(tokens) {
-                    return Ok(SimpleStatementTree::AssignmentTree(assignment_tree));
-                }
-                if let Ok(call_tree) = CallTree::from_tokens(tokens) {
-                    return Ok(SimpleStatementTree::CallTree(call_tree));
+                if tokens
+                    .peek_index(1)?
+                    .is_separator(&SeperatorType::ParenOpen)
+                {
+                    let call_tree = CallTree::from_tokens(tokens)?;
+                    Ok(SimpleStatementTree::CallTree(call_tree))
+                } else {
+                    let assignment_tree = AssignmentTree::from_tokens(tokens)?;
+                    Ok(SimpleStatementTree::AssignmentTree(assignment_tree))
                 }
             }
         }
-        Err(ParseError::NotAStatement)
     }
 }
 

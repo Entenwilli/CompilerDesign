@@ -2,8 +2,9 @@ use std::fmt::Display;
 
 use crate::{
     lexer::operator::{BinaryOperator, UnaryOperator},
-    parser::ast::{
-        block_tree::BlockTree, expression_tree::ExpressionTree, name_tree::NameTree, Tree,
+    parser::{
+        ast::{block_tree::BlockTree, expression_tree::ExpressionTree, name_tree::NameTree, Tree},
+        symbols::Name,
     },
     util::span::Span,
 };
@@ -26,6 +27,9 @@ pub enum SemanticError {
     ForAdvancementDefinesVariable,
     MainMustReturnInt,
     IncompatibleReturnType(ExpressionTree),
+    FunctionAlreadyDefined(Name),
+    UndefinedFunction(Name),
+    FunctionParameterMismatch,
 }
 
 impl Display for SemanticError {
@@ -105,6 +109,15 @@ impl Display for SemanticError {
             }
             SemanticError::IncompatibleReturnType(tree) => {
                 writeln!(f, "Expression at {} returns wrong type", tree.span())
+            }
+            SemanticError::FunctionAlreadyDefined(name) => {
+                writeln!(f, "Function with name {} already defined", name.as_string())
+            }
+            SemanticError::UndefinedFunction(name) => {
+                writeln!(f, "Undefined function {}", name.as_string())
+            }
+            SemanticError::FunctionParameterMismatch => {
+                writeln!(f, "Mismatching function parameters!")
             }
         }
     }

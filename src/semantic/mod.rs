@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::parser::{symbols::Name, types::Type};
+use crate::{
+    parser::{symbols::Name, types::Type},
+    semantic::error::SemanticError,
+};
 
 pub mod ast;
 pub mod error;
@@ -9,6 +12,7 @@ pub mod error;
 pub struct AnalysisState {
     return_state: ReturnState,
     namespace: HashMap<Name, VariableStatus>,
+    functions: HashMap<Name, (Type, Vec<Type>)>,
     active_loops: usize,
     reachable: bool,
     return_type: Type,
@@ -19,6 +23,7 @@ impl Default for AnalysisState {
         AnalysisState {
             return_state: ReturnState::NotReturing,
             namespace: HashMap::new(),
+            functions: HashMap::new(),
             active_loops: 0,
             reachable: true,
             return_type: Type::Unit,
@@ -57,6 +62,39 @@ impl AnalysisState {
 
     pub fn set_return_type(&mut self, return_type: Type) {
         self.return_type = return_type;
+    }
+
+    pub fn register_function(
+        &mut self,
+        name: Name,
+        return_type: Type,
+        parameter: Vec<Type>,
+    ) -> Result<(), SemanticError> {
+        if self.functions.contains_key(&name) {
+            Err(SemanticError::FunctionAlreadyDefined(name))
+        } else {
+            self.functions.insert(name, (return_type, parameter));
+            Ok(())
+        }
+    }
+
+    pub fn get_function_return_type(&mut self, name: &Name) -> Result<&Type, SemanticError> {
+        Ok(&self
+            .functions
+            .get(name)
+            .ok_or(SemanticError::UndefinedFunction(name.clone()))?
+            .0)
+    }
+
+    pub fn get_function_parameter_info(
+        &mut self,
+        name: &Name,
+    ) -> Result<&Vec<Type>, SemanticError> {
+        Ok(&self
+            .functions
+            .get(name)
+            .ok_or(SemanticError::UndefinedFunction(name.clone()))?
+            .1)
     }
 }
 
