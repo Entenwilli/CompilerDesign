@@ -47,14 +47,7 @@ impl Tree for ProgramTree {
         if functions.is_empty() {
             return Err(ParseError::NoFunctions);
         }
-        if functions
-            .iter()
-            .any(|v| v.name_tree().name().as_string() == "main")
-        {
-            Ok(ProgramTree { functions })
-        } else {
-            Err(ParseError::NoMainFunction)
-        }
+        Ok(ProgramTree { functions })
     }
 }
 

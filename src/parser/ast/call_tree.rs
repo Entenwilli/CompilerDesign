@@ -4,9 +4,11 @@ use crate::{
     lexer::{collection::ParserTokens, token::SeperatorType},
     parser::{
         ast::{
-            call_parameter_tree::CallParameterTree, identifier_tree::IdentifierExpressionTree, Tree,
+            call_parameter_tree::CallParameterTree, identifier_tree::IdentifierExpressionTree,
+            name_tree::NameTree, Tree,
         },
         error::ParseError,
+        symbols::Name,
     },
     util::span::Span,
 };
@@ -23,7 +25,15 @@ impl Tree for CallTree {
         self.identifier.span().merge(&self.closing_span)
     }
     fn from_tokens(tokens: &mut ParserTokens) -> Result<Self, ParseError> {
-        let identifier = IdentifierExpressionTree::from_tokens(tokens)?;
+        let identifier = if tokens.peek().ok_or(ParseError::ReachedEnd)?.is_function() {
+            let token = tokens.consume()?;
+            IdentifierExpressionTree::new(NameTree::new(
+                Name::IdentifierName(token.as_string().to_string()),
+                token.span(),
+            ))
+        } else {
+            IdentifierExpressionTree::from_tokens(tokens)?
+        };
         tokens.expect_seperator(SeperatorType::ParenOpen)?;
         let mut call_parameter = Vec::new();
         if !tokens

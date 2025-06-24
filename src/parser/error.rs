@@ -19,7 +19,6 @@ pub enum ParseError {
     NotAStatement,
     NotAOperation,
     NoFunctions,
-    NoMainFunction,
     ReachedEnd,
     WhitespaceError,
     InvalidCharacter,

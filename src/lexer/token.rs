@@ -14,6 +14,9 @@ pub enum KeywordType {
     True,
     False,
     Null,
+    Print,
+    Read,
+    Flush,
     Alloc,
     AllocArray,
     Int,
@@ -38,6 +41,9 @@ impl KeywordType {
             Self::True => "true",
             Self::False => "false",
             Self::Null => "null",
+            Self::Print => "print",
+            Self::Read => "read",
+            Self::Flush => "flush",
             Self::Alloc => "alloc",
             Self::AllocArray => "alloc_array",
             Self::Int => "int",
@@ -62,6 +68,9 @@ impl KeywordType {
             "true" => Some(Self::True),
             "false" => Some(Self::False),
             "null" => Some(Self::Null),
+            "print" => Some(Self::Print),
+            "read" => Some(Self::Read),
+            "flush" => Some(Self::Flush),
             "alloc" => Some(Self::Alloc),
             "alloc_array" => Some(Self::AllocArray),
             "int" => Some(Self::Int),
@@ -82,6 +91,10 @@ impl KeywordType {
 
     pub fn is_type(&self) -> bool {
         matches!(self, Self::Bool | Self::Int)
+    }
+
+    pub fn is_function(&self) -> bool {
+        matches!(self, Self::Flush | Self::Read | Self::Print)
     }
 }
 
@@ -294,6 +307,10 @@ impl Token {
             Self::Operator(_, operator) => operator.eq(other_operator),
             _ => false,
         }
+    }
+
+    pub fn is_function(&self) -> bool {
+        matches!(self, Self::Keyword(_, keyword_type) if keyword_type.is_function())
     }
 
     pub fn is_assignment_operator(&self) -> bool {

@@ -204,6 +204,9 @@ impl ExpressionTree {
                     ))
                 }
             }
+            Token::Keyword(_, keyword_type) if keyword_type.is_function() => {
+                Ok(ExpressionTree::CallTree(CallTree::from_tokens(tokens)?))
+            }
             Token::NumberLiteral(_, _, _) => Ok(ExpressionTree::IntegerLiteralTree(
                 IntegerLiteralTree::from_tokens(tokens)?,
             )),
