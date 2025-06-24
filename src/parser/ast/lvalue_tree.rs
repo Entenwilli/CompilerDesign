@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use tracing::trace;
+
 use crate::{
     lexer::{collection::ParserTokens, token::SeperatorType},
     parser::{
@@ -19,6 +21,8 @@ impl Tree for LValueTree {
         self.identifier.span().clone()
     }
     fn from_tokens(tokens: &mut ParserTokens) -> Result<Self, ParseError> {
+        trace!("Parsing lvalue from tokens");
+        trace!("First token: {:?}", tokens.peek());
         if tokens
             .peek()
             .ok_or(ParseError::ReachedEnd)?
